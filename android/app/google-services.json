@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "563269087218",
+    "project_id": "kesif-92b61",
+    "storage_bucket": "kesif-92b61.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:563269087218:android:9f42b92a895ced6223456b",
+        "android_client_info": {
+          "package_name": "com.kesif.kesif_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_9PSuxwp4utKwjfjRvLMBzvqmBw9pHkk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

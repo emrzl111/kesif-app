@@ -1,0 +1,68 @@
+name: kesif_app
+description: "Keşif - Sosyal Harita & Yürüyüş Uygulaması"
+publish_to: 'none'
+version: 1.0.3+9
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Harita (OpenStreetMap - Ücretsiz)
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+
+  # GPS & Konum
+  geolocator: ^13.0.2
+  permission_handler: ^11.3.1
+
+  # Kimlik Doğrulama & Backend (Supabase ücretsiz tier)
+  supabase_flutter: ^2.8.4
+
+  # Push Bildirim (Firebase Cloud Messaging)
+  firebase_core: ^3.13.1
+  firebase_messaging: ^15.2.5
+  flutter_local_notifications: ^18.0.1
+
+  # Yerel Veritabanı (Offline çalışma)
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  path_provider: ^2.1.4
+
+  # UI
+  google_fonts: ^6.2.1
+
+  # Kamera & Fotoğraf
+  image_picker: ^1.1.2
+
+  # HTTP (OSRM rota API)
+  http: ^1.2.2
+
+  # Yardımcı
+  provider: ^6.1.2
+  intl: ^0.19.0
+  uuid: ^4.5.1
+  shared_preferences: ^2.3.3
+  url_launcher: ^6.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icons/app_icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#1A1A2E"
+  adaptive_icon_foreground: "assets/icons/app_icon_foreground.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/
+    - assets/images/
