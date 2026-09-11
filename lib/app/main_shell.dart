@@ -128,7 +128,7 @@ class MainShellState extends State<MainShell> {
             decoration: BoxDecoration(
               color: const Color(0xFF1E2340),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFE91E63).withOpacity(0.4)),
+              border: Border.all(color: const Color(0xFFE91E63).withValues(alpha: 0.4)),
               boxShadow: [
                 BoxShadow(
                   color: const Color(0xFFE91E63).withOpacity(0.15),
@@ -142,7 +142,7 @@ class MainShellState extends State<MainShell> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE91E63).withOpacity(0.15),
+                    color: const Color(0xFFE91E63).withValues(alpha: 0.15),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(icon, color: const Color(0xFFE91E63), size: 20),
@@ -167,7 +167,7 @@ class MainShellState extends State<MainShell> {
                       Text(
                         body,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.75),
+                          color: Colors.white.withValues(alpha: 0.75),
                           fontSize: 13,
                         ),
                         maxLines: 1,
@@ -177,7 +177,7 @@ class MainShellState extends State<MainShell> {
                   ),
                 ),
                 Icon(Icons.chevron_right_rounded,
-                    color: Colors.white.withOpacity(0.5), size: 20),
+                    color: Colors.white.withValues(alpha: 0.5), size: 20),
               ],
             ),
           ),

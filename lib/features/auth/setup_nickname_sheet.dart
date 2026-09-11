@@ -64,10 +64,10 @@ class _SetupNicknameSheetState extends State<SetupNicknameSheet> {
       return;
     }
 
-    if (!RegExp(r'^[a-zA-Z0-9._]+$').hasMatch(val)) {
+    if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(val)) {
       setState(() {
         _isAvailable = false;
-        _errorMessage = 'Sadece harf, rakam, nokta ve alt çizgi kullanılabilir.';
+        _errorMessage = 'Sadece harf, rakam ve alt çizgi (_) kullanılabilir.';
       });
       return;
     }

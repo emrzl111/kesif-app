@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:uuid/uuid.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:permission_handler/permission_handler.dart';
 import '../../app/theme.dart';
 import '../../services/location_service.dart';
 import '../../services/database_service.dart';
@@ -55,11 +56,23 @@ class _TrackingScreenState extends State<TrackingScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    if (state == AppLifecycleState.paused) {
+      // Arka plana geçince harita yenilemeyi durdur ama stream çalışmaya devam eder
+      // (foreground service sayesinde konum akışı kesilmez)
+    } else if (state == AppLifecycleState.resumed) {
       if (mounted) {
         setState(() {
-          _tileLayerResetKey++;
+          _tileLayerResetKey++; // Harita tile'larını yenile
         });
+        // Son bilinen konuma haritayı taşı
+        if (_lastPosition != null && _isTracking) {
+          try {
+            _mapController.move(
+              LatLng(_lastPosition!.latitude, _lastPosition!.longitude),
+              17,
+            );
+          } catch (_) {}
+        }
       }
     }
   }
@@ -88,6 +101,26 @@ class _TrackingScreenState extends State<TrackingScreen>
       return;
     }
 
+    // Android: Arka plan konum izni iste
+    if (Platform.isAndroid) {
+      final bgStatus = await Permission.locationAlways.status;
+      if (!bgStatus.isGranted) {
+        final result = await Permission.locationAlways.request();
+        if (mounted && result.isDenied) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                '⚠️ Arka plan konum izni verilmedi. '
+                'Rota oluşturma uygulama açıkken çalışır.',
+              ),
+              duration: Duration(seconds: 4),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+    }
+
     // İlk konumu al ve başlangıç noktası olarak hemen ekle
     Position? initialPos;
     try {
@@ -104,10 +137,9 @@ class _TrackingScreenState extends State<TrackingScreen>
       _routePoints = [];
       _totalDistance = 0;
       _elapsedSeconds = 0;
-      _lastPosition = initialPos; // Başlangıç konumunu hemen set et
+      _lastPosition = initialPos;
     });
 
-    // Başlangıç noktasını rota listesine ekle
     if (initialPos != null) {
       final startPoint = LatLng(initialPos.latitude, initialPos.longitude);
       setState(() => _routePoints.add(startPoint));
@@ -119,11 +151,45 @@ class _TrackingScreenState extends State<TrackingScreen>
       if (!_isPaused) setState(() => _elapsedSeconds++);
     });
 
-    _positionSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
+    // Platform'a göre konum ayarları
+    // Android: foregroundNotificationConfig ile bildirim + arka plan stream
+    // iOS: allowBackgroundLocationUpdates ile sürekli konum
+    LocationSettings locationSettings;
+    if (Platform.isAndroid) {
+      locationSettings = AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 3, // 3 metre — daha sık güncelleme
-      ),
+        distanceFilter: 3,
+        forceLocationManager: false,
+        intervalDuration: const Duration(seconds: 2),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationText: 'Rota kaydediliyor... GPS aktif',
+          notificationTitle: '🧭 Keşif - Rota Takibi',
+          enableWakeLock: true,
+          notificationIcon: AndroidResource(
+            name: 'ic_launcher',
+            defType: 'mipmap',
+          ),
+          setOngoing: true,
+        ),
+      );
+    } else if (Platform.isIOS) {
+      locationSettings = AppleSettings(
+        accuracy: LocationAccuracy.high,
+        activityType: ActivityType.fitness,
+        distanceFilter: 3,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: true,
+        allowBackgroundLocationUpdates: true,
+      );
+    } else {
+      locationSettings = const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 3,
+      );
+    }
+
+    _positionSub = Geolocator.getPositionStream(
+      locationSettings: locationSettings,
     ).listen((pos) {
       if (_isPaused) return;
       final newPoint = LatLng(pos.latitude, pos.longitude);
@@ -138,9 +204,15 @@ class _TrackingScreenState extends State<TrackingScreen>
       }
 
       _lastPosition = pos;
+      // mounted kontrolü: arka planda widget ağaçta kalır ama
+      // setState çağrısı yine de yapılır — rota noktası kaydedilir
       if (mounted) {
         setState(() => _routePoints.add(newPoint));
-        _mapController.move(newPoint, 17);
+        // Harita ön plandayken takip et
+        try { _mapController.move(newPoint, 17); } catch (_) {}
+      } else {
+        // Arka planda: setState olmadan listeye ekle (foreground service sayesinde)
+        _routePoints.add(newPoint);
       }
     });
   }

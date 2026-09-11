@@ -511,6 +511,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
           _buildMap(),
           _buildTopBar(),
           _buildCategorySidebar(), // Sağdaki dikey menü geri getirildi
+          if (_showPharmacies) _buildPharmacyListPanel(), // Eczane listesi paneli
           _buildBottomControls(),
           if (_isLoadingLocation) _buildLoadingOverlay(),
           if (_isLoadingRoute) _buildRouteLoadingIndicator(),

@@ -1,7 +1,7 @@
 name: kesif_app
 description: "Keşif - Sosyal Harita & Yürüyüş Uygulaması"
 publish_to: 'none'
-version: 1.0.3+9
+version: 1.1.0+10
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

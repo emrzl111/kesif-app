@@ -67,7 +67,7 @@ class _PointDetailSheetState extends State<PointDetailSheet>
         widget.userLocation!,
         LatLng(widget.point.latitude, widget.point.longitude),
       );
-      _canCheckIn = dist <= 10.0;
+      _canCheckIn = dist <= 100.0;
     } else {
       _canCheckIn = false;
     }
@@ -313,6 +313,44 @@ class _PointDetailSheetState extends State<PointDetailSheet>
     return '${(dist / 1000).toStringAsFixed(1)} km';
   }
 
+  /// imagePath bir HTTP(S) URL'si ise network'ten, değilse yerel dosyadan yükler.
+  Widget _buildPointImage(String imagePath) {
+    final isUrl = imagePath.startsWith('http://') || imagePath.startsWith('https://');
+    if (isUrl) {
+      return Image.network(
+        imagePath,
+        width: double.infinity,
+        height: 200,
+        fit: BoxFit.cover,
+        loadingBuilder: (_, child, progress) {
+          if (progress == null) return child;
+          return Container(
+            width: double.infinity,
+            height: 200,
+            color: const Color(0xFF1E2340),
+            child: Center(
+              child: CircularProgressIndicator(
+                value: progress.expectedTotalBytes != null
+                    ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                    : null,
+                color: const Color(0xFF7C4DFF),
+                strokeWidth: 2,
+              ),
+            ),
+          );
+        },
+        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+      );
+    }
+    return Image.file(
+      File(imagePath),
+      width: double.infinity,
+      height: 200,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+    );
+  }
+
   Widget _buildCheckInSection() {
     final isLoggedIn = Supabase.instance.client.auth.currentSession != null;
 
@@ -379,7 +417,7 @@ class _PointDetailSheetState extends State<PointDetailSheet>
           const SizedBox(height: 4),
           const Center(
             child: Text(
-              '🔒 Gittim işaretlemek için yerin 10 metre yakınında olmalısınız.',
+              '🔒 Gittim işaretlemek için yerin 100 metre yakınında olmalısınız.',
               style: TextStyle(color: AppColors.error, fontSize: 11, fontWeight: FontWeight.w500),
             ),
           ),
@@ -413,13 +451,7 @@ class _PointDetailSheetState extends State<PointDetailSheet>
               widget.point.imagePath!.isNotEmpty)
             ClipRRect(
               borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-              child: Image.file(
-                File(widget.point.imagePath!),
-                width: double.infinity,
-                height: 180,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-              ),
+              child: _buildPointImage(widget.point.imagePath!),
             ),
 
           Padding(

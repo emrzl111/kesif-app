@@ -79,6 +79,10 @@
 				<string>com.kesif.app</string>
 			</array>
 		</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
 	</array>
 </dict>
 </plist>

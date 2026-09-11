@@ -1,11 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../app/theme.dart';
 import '../../services/database_service.dart';
 import '../../shared/models/models.dart';
 import 'package:uuid/uuid.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 class AddPointSheet extends StatefulWidget {
@@ -34,10 +34,10 @@ class _AddPointSheetState extends State<AddPointSheet> {
   final _uuid = const Uuid();
   final _picker = ImagePicker();
 
-  Future<void> _pickPhoto() async {
+  Future<void> _pickPhoto({bool fromGallery = false}) async {
     try {
       final xFile = await _picker.pickImage(
-        source: ImageSource.camera,
+        source: fromGallery ? ImageSource.gallery : ImageSource.camera,
         imageQuality: 80,
         maxWidth: 1200,
       );
@@ -48,11 +48,44 @@ class _AddPointSheetState extends State<AddPointSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Kamera açılamadı: $e'),
+            content: Text('Fotoğraf seçilemedi: $e'),
             backgroundColor: AppColors.error,
           ),
         );
       }
+    }
+  }
+
+  /// Fotoğrafı Supabase Storage'a yükler ve public URL döndürür.
+  /// Yükleme başarısız olursa null döner (yerel path kullanılır).
+  Future<String?> _uploadPhotoToStorage(File photo, String pointId) async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return null;
+
+      final ext = p.extension(photo.path).toLowerCase().replaceFirst('.', '');
+      final fileName = 'point_photos/$pointId.${ext.isEmpty ? "jpg" : ext}';
+      final bytes = await photo.readAsBytes();
+
+      await Supabase.instance.client.storage
+          .from('point-images')
+          .uploadBinary(
+            fileName,
+            bytes,
+            fileOptions: FileOptions(
+              contentType: 'image/${ext.isEmpty ? "jpeg" : ext}',
+              upsert: true,
+            ),
+          );
+
+      final publicUrl = Supabase.instance.client.storage
+          .from('point-images')
+          .getPublicUrl(fileName);
+      return publicUrl;
+    } catch (e) {
+      // Storage yükleme başarısız — sadece yerel kaydedilir
+      debugPrint('Storage fotoğraf yükleme hatası: $e');
+      return null;
     }
   }
 
@@ -77,20 +110,47 @@ class _AddPointSheetState extends State<AddPointSheet> {
 
     setState(() => _isSaving = true);
     try {
-      final imagePath = _photo?.path;
+      final pointId = _uuid.v4();
+
+      // 1. Kullanıcının nickname'ini çek
+      String? currentNickname;
+      try {
+        final user = Supabase.instance.client.auth.currentUser;
+        if (user != null) {
+          final res = await Supabase.instance.client
+              .from('profiles')
+              .select('nickname')
+              .eq('id', user.id)
+              .maybeSingle();
+          currentNickname = res?['nickname'] as String?;
+        }
+      } catch (_) {}
+
+      // 2. Önce fotoğrafı Supabase Storage'a yükle
+      String? remoteImageUrl;
+      final String? localImagePath = _photo?.path;
+
+      if (_photo != null) {
+        remoteImageUrl = await _uploadPhotoToStorage(_photo!, pointId);
+      }
+
+      // 3. Nokta nesnesini oluştur (remote URL varsa onu, yoksa yerel path'i kullan)
       final point = DiscoveryPoint(
-        id: _uuid.v4(),
+        id: pointId,
         title: _titleController.text.trim(),
         description: _descController.text.trim(),
         latitude: widget.latitude,
         longitude: widget.longitude,
         category: _selectedCategory,
-        imagePath: imagePath,
+        // Remote URL öncelikli, yoksa yerel yol
+        imagePath: remoteImageUrl ?? localImagePath,
         createdAt: DateTime.now(),
         isUserAdded: true,
         isPetFriendly: _isPetFriendly,
+        addedByNickname: currentNickname,
       );
-      await DatabaseService().insertPoint(point);
+
+      await DatabaseService().insertPoint(point, remoteImageUrl: remoteImageUrl);
       widget.onSaved();
       if (mounted) Navigator.pop(context);
     } catch (e) {
@@ -171,93 +231,142 @@ class _AddPointSheetState extends State<AddPointSheet> {
                   color: AppColors.textSecondary, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 10),
-            GestureDetector(
-              onTap: _pickPhoto,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: double.infinity,
-                height: 160,
-                decoration: BoxDecoration(
-                  color: _photo != null
-                      ? Colors.transparent
-                      : AppColors.card,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: _photo != null
-                        ? AppColors.primary
-                        : AppColors.border,
-                    width: _photo != null ? 2 : 1,
+            Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => _pickPhoto(fromGallery: false),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      height: 160,
+                      decoration: BoxDecoration(
+                        color: _photo != null
+                            ? Colors.transparent
+                            : AppColors.card,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: _photo != null
+                              ? AppColors.primary
+                              : AppColors.border,
+                          width: _photo != null ? 2 : 1,
+                        ),
+                      ),
+                      child: _photo != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(15),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  Image.file(_photo!, fit: BoxFit.cover),
+                                  Positioned(
+                                    bottom: 8,
+                                    right: 8,
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        GestureDetector(
+                                          onTap: () => _pickPhoto(fromGallery: false),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 5),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withValues(alpha: 0.6),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(Icons.camera_alt, color: Colors.white, size: 12),
+                                                SizedBox(width: 4),
+                                                Text('Yeniden Çek', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        GestureDetector(
+                                          onTap: () => _pickPhoto(fromGallery: true),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 5),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withValues(alpha: 0.6),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(Icons.photo_library, color: Colors.white, size: 12),
+                                                SizedBox(width: 4),
+                                                Text('Galeri', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    GestureDetector(
+                                      onTap: () => _pickPhoto(fromGallery: false),
+                                      child: Column(
+                                        children: [
+                                          Container(
+                                            width: 48,
+                                            height: 48,
+                                            decoration: BoxDecoration(
+                                              color: AppColors.primary.withValues(alpha: 0.1),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(Icons.camera_alt_rounded,
+                                                color: AppColors.primary, size: 24),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          const Text('Kamera', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w600)),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 24),
+                                    GestureDetector(
+                                      onTap: () => _pickPhoto(fromGallery: true),
+                                      child: Column(
+                                        children: [
+                                          Container(
+                                            width: 48,
+                                            height: 48,
+                                            decoration: BoxDecoration(
+                                              color: AppColors.primary.withValues(alpha: 0.1),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(Icons.photo_library_rounded,
+                                                color: AppColors.primary, size: 24),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          const Text('Galeri', style: TextStyle(color: AppColors.primary, fontSize: 12, fontWeight: FontWeight.w600)),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  'Pin eklemek için fotoğraf zorunludur',
+                                  style: TextStyle(color: AppColors.textHint, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                    ),
                   ),
                 ),
-                child: _photo != null
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(15),
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Image.file(_photo!, fit: BoxFit.cover),
-                            Positioned(
-                              bottom: 8,
-                              right: 8,
-                              child: GestureDetector(
-                                onTap: _pickPhoto,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.6),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: const Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.camera_alt,
-                                          color: Colors.white, size: 14),
-                                      SizedBox(width: 4),
-                                      Text('Yeniden Çek',
-                                          style: TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 12)),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            width: 56,
-                            height: 56,
-                            decoration: BoxDecoration(
-                              color:
-                                  AppColors.primary.withValues(alpha: 0.1),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(Icons.camera_alt_rounded,
-                                color: AppColors.primary, size: 28),
-                          ),
-                          const SizedBox(height: 10),
-                          const Text(
-                            'Fotoğraf Çek',
-                            style: TextStyle(
-                              color: AppColors.primary,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Pin eklemek için fotoğraf zorunludur',
-                            style: TextStyle(
-                                color: AppColors.textHint, fontSize: 12),
-                          ),
-                        ],
-                      ),
-              ),
+              ],
             ),
 
             const SizedBox(height: 16),

@@ -69,17 +69,53 @@ class _ProfileScreenState extends State<ProfileScreen>
       }
 
       try {
-        final res = await Supabase.instance.client
-            .from('point_visits')
-            .select('rating, created_at, discovery_points(*)')
-            .eq('user_id', user.id);
-        
-        final List<dynamic> visitsData = res as List<dynamic>;
-        myVisits = List<Map<String, dynamic>>.from(
-          visitsData.where((v) => v['discovery_points'] != null)
-        );
+        List<dynamic> visitsData;
+        try {
+          // Önce join ile dene (Supabase'de FK tanımlıysa çalışır)
+          final res = await Supabase.instance.client
+              .from('point_visits')
+              .select('rating, created_at, point_id, discovery_points(*)')
+              .eq('user_id', user.id);
+          visitsData = res as List<dynamic>;
+          myVisits = List<Map<String, dynamic>>.from(
+            visitsData.where((v) => v['discovery_points'] != null),
+          );
+        } catch (_) {
+          // Join yoksa önce point_id'leri çek, sonra noktaları ayrıca sorgula
+          final res = await Supabase.instance.client
+              .from('point_visits')
+              .select('rating, created_at, point_id')
+              .eq('user_id', user.id);
+          visitsData = res as List<dynamic>;
+
+          if (visitsData.isNotEmpty) {
+            final pointIds = visitsData.map((v) => v['point_id'] as String).toList();
+            try {
+              final pointsRes = await Supabase.instance.client
+                  .from('discovery_points')
+                  .select('*')
+                  .inFilter('id', pointIds);
+              final pointsMap = <String, dynamic>{
+                for (final p in pointsRes as List<dynamic>) p['id'] as String: p,
+              };
+              myVisits = List<Map<String, dynamic>>.from(
+                visitsData.map((v) {
+                  final pid = v['point_id'] as String;
+                  return {
+                    'rating': v['rating'],
+                    'created_at': v['created_at'],
+                    'discovery_points': pointsMap[pid],
+                  };
+                }).where((v) => v['discovery_points'] != null),
+              );
+            } catch (_) {
+              // Noktalar da çekilemediyse boş bırak
+              myVisits = [];
+            }
+          }
+        }
       } catch (e) {
-        print('Kullanici ziyaret verisi yukleme hatasi: $e');
+        debugPrint('Kullanıcı ziyaret verisi yükleme hatası: $e');
       }
     }
 

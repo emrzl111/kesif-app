@@ -93,21 +93,42 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
     }
 
     try {
-      var query = Supabase.instance.client
-          .from('discovery_points')
-          .select('*');
-      
-      if (_activeFilter != null) {
-        query = query.eq('category', _activeFilter!.index);
-      }
+      List<dynamic> data;
+      try {
+        // profiles join ile nickname'i doğrudan çek
+        var query = Supabase.instance.client
+            .from('discovery_points')
+            .select('*, profiles(nickname)');
 
-      final publicPointsRes = await query;
-      final List<dynamic> data = publicPointsRes as List<dynamic>;
+        if (_activeFilter != null) {
+          query = query.eq('category', _activeFilter!.index);
+        }
+
+        final publicPointsRes = await query;
+        data = publicPointsRes as List<dynamic>;
+      } catch (_) {
+        // Join başarısız olursa profiles'sız çek
+        var query = Supabase.instance.client
+            .from('discovery_points')
+            .select('*');
+        if (_activeFilter != null) {
+          query = query.eq('category', _activeFilter!.index);
+        }
+        final publicPointsRes = await query;
+        data = publicPointsRes as List<dynamic>;
+      }
 
       List<DiscoveryPoint> updatedPoints = List.from(localPoints);
       for (final p in data) {
         final id = p['id'] as String;
         if (updatedPoints.any((lp) => lp.id == id)) continue;
+
+        // Nickname: önce profiles join'den, sonra added_by_nickname'den dene
+        String? nickname;
+        if (p['profiles'] != null && p['profiles'] is Map) {
+          nickname = p['profiles']['nickname'] as String?;
+        }
+        nickname ??= p['added_by_nickname'] as String?;
 
         updatedPoints.add(DiscoveryPoint(
           id: id,
@@ -119,8 +140,10 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
           likes: (p['likes'] ?? 0) as int,
           createdAt: DateTime.parse(p['created_at'] as String),
           isUserAdded: false,
-          addedByNickname: (p['added_by_nickname'] ?? 'Gezgin') as String?,
+          addedByNickname: nickname,
           isPetFriendly: (p['is_pet_friendly'] ?? false) as bool,
+          // Storage'dan gelen image URL'i de çek
+          imagePath: p['image_url'] as String?,
         ));
       }
 
@@ -531,8 +554,12 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
   }
 
   Widget _buildEventsVerticalList() {
-    final limitDate = DateTime.now().add(const Duration(days: 10));
-    final activeEvents = _events.where((e) => e.startDate.isBefore(limitDate)).toList();
+    final nowCutoff = DateTime.now().subtract(const Duration(hours: 6));
+    final limitDate = DateTime.now().add(const Duration(days: 14));
+    final activeEvents = _events.where((e) => e.startDate.isAfter(nowCutoff) && e.startDate.isBefore(limitDate)).toList();
+    if (activeEvents.isEmpty && _events.isNotEmpty) {
+      activeEvents.addAll(_events);
+    }
 
     if (_eventsLoading) {
       return const SliverFillRemaining(
@@ -830,6 +857,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // ─── Başlık satırı ───
                 Row(
                   children: [
                     Container(
@@ -870,6 +898,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
                     ),
                   ],
                 ),
+                // ─── Açıklama ───
                 if (point.description.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Text(
@@ -884,6 +913,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
                   ),
                 ],
                 const SizedBox(height: 14),
+                // ─── Rating / Beğeni / Pet satırı ───
                 Row(
                   children: [
                     if ((_pointRatings[point.id] ?? []).isNotEmpty) ...[
@@ -947,6 +977,41 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
                       ),
                   ],
                 ),
+                // ─── Ekleyen kullanıcı nickname etiketi ───
+                if (point.addedByNickname != null &&
+                    point.addedByNickname!.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.person_rounded,
+                          size: 11,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '@${point.addedByNickname}',
+                          style: const TextStyle(
+                            color: AppColors.primary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -954,6 +1019,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
       ),
     );
   }
+
 
   Widget _buildEmpty() {
     return Center(

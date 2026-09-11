@@ -62,7 +62,7 @@ class DiscoveryPoint {
       latitude: (map['latitude'] as num?)?.toDouble() ?? 0.0,
       longitude: (map['longitude'] as num?)?.toDouble() ?? 0.0,
       category: PointCategory.values[(map['category'] as int?) ?? 0],
-      imagePath: map['imagePath'] as String?,
+      imagePath: (map['imagePath'] ?? map['image_url']) as String?,
       likes: (map['likes'] ?? 0) as int,
       createdAt: map['createdAt'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int)
@@ -70,7 +70,7 @@ class DiscoveryPoint {
               ? DateTime.parse(map['created_at'] as String)
               : DateTime.now()),
       isUserAdded: map['isUserAdded'] == 1,
-      addedByNickname: map['addedByNickname'] as String?,
+      addedByNickname: (map['addedByNickname'] ?? map['added_by_nickname']) as String?,
       isPetFriendly: map['isPetFriendly'] == 1 || map['is_pet_friendly'] == true,
       isSponsored: map['isSponsored'] == 1 || map['is_sponsored'] == true,
       discountCode: map['discountCode'] as String? ?? map['discount_code'] as String?,

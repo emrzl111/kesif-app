@@ -110,18 +110,60 @@ class EventsService {
 
   String? _normalizeCity(String? city) {
     if (city == null) return null;
+    // Türkiye'nin tüm büyükşehirleri ve yazım varyantları
     const cityMap = {
-      'İstanbul': 'İstanbul',
-      'Istanbul': 'İstanbul',
+      // Marmara
+      'İstanbul': 'İstanbul', 'Istanbul': 'İstanbul',
       'Ankara': 'Ankara',
-      'İzmir': 'İzmir',
-      'Izmir': 'İzmir',
       'Bursa': 'Bursa',
       'Edirne': 'Edirne',
-      'Çanakkale': 'Çanakkale',
-      'Canakkale': 'Çanakkale',
-      'Muğla': 'Muğla',
-      'Mugla': 'Muğla',
+      'Çanakkale': 'Çanakkale', 'Canakkale': 'Çanakkale',
+      'Kocaeli': 'Kocaeli', 'Izmit': 'Kocaeli', 'İzmit': 'Kocaeli',
+      'Sakarya': 'Sakarya', 'Adapazarı': 'Sakarya',
+      'Balıkesir': 'Balıkesir', 'Balikesir': 'Balıkesir',
+      'Tekirdağ': 'Tekirdağ', 'Tekirdag': 'Tekirdağ',
+      'Yalova': 'Yalova',
+      // Ege
+      'İzmir': 'İzmir', 'Izmir': 'İzmir',
+      'Muğla': 'Muğla', 'Mugla': 'Muğla',
+      'Aydın': 'Aydın', 'Aydin': 'Aydın',
+      'Denizli': 'Denizli',
+      'Uşak': 'Uşak', 'Usak': 'Uşak',
+      'Manisa': 'Manisa',
+      'Kuşadası': 'İzmir', 'Kusadasi': 'İzmir',
+      'Bodrum': 'Muğla',
+      // Akdeniz
+      'Antalya': 'Antalya',
+      'Mersin': 'Mersin', 'Içel': 'Mersin',
+      'Adana': 'Adana',
+      'Hatay': 'Hatay', 'Antakya': 'Hatay',
+      'Isparta': 'Isparta',
+      'Burdur': 'Burdur',
+      'Alanya': 'Antalya',
+      'Side': 'Antalya',
+      // Karadeniz
+      'Trabzon': 'Trabzon',
+      'Samsun': 'Samsun',
+      'Giresun': 'Giresun',
+      'Ordu': 'Ordu',
+      'Rize': 'Rize',
+      'Zonguldak': 'Zonguldak',
+      'Bolu': 'Bolu',
+      // İç Anadolu
+      'Konya': 'Konya',
+      'Kayseri': 'Kayseri',
+      'Eskişehir': 'Eskişehir', 'Eskisehir': 'Eskişehir',
+      'Sivas': 'Sivas',
+      'Kirşehir': 'Kirşehir',
+      'Nevkşehir': 'Nevkşehir', 'Cappadocia': 'Nevkşehir', 'Kapadokya': 'Nevkşehir',
+      'Ürüm': 'Nevkşehir',
+      // Doğu Anadolu
+      'Erzurum': 'Erzurum',
+      'Malatya': 'Malatya',
+      'Van': 'Van',
+      'Diyarbakır': 'Diyarbakır', 'Diyarbakir': 'Diyarbakır',
+      'Gaziantep': 'Gaziantep', 'Antep': 'Gaziantep',
+      'Şanlıurfa': 'Şanlıurfa', 'Sanliurfa': 'Şanlıurfa', 'Urfa': 'Şanlıurfa',
     };
     for (final entry in cityMap.entries) {
       if (city.toLowerCase().contains(entry.key.toLowerCase())) {
@@ -132,41 +174,97 @@ class EventsService {
   }
 
   Future<List<EventModel>> getEventsByCity(String city, {String? category}) async {
+    final now = DateTime.now();
+    final pastCutoff = now.subtract(const Duration(hours: 6));
+    final futureLimit = now.add(const Duration(days: 14));
+
+    List<EventModel> events = [];
+
     try {
       var query = _supabase
           .from('events')
           .select()
           .eq('city', city)
-          .gte('start_date', DateTime.now().toIso8601String());
+          .gte('start_date', pastCutoff.toIso8601String())
+          .lte('start_date', futureLimit.toIso8601String());
 
       if (category != null) {
         query = query.eq('category', category);
       }
 
-      final data = await query
-          .order('start_date', ascending: true)
-          .limit(20);
+      final data = await query.order('start_date', ascending: true).limit(30);
 
-      final list = (data as List).map((e) => EventModel.fromMap(e as Map<String, dynamic>)).toList();
-      if (list.isNotEmpty) return list;
-
-      // Veritabanı boşsa otomatik sistem etkinliklerini eşitle ve getir
-      return await _seedAndFetchSystemEvents(city, category: category);
+      events = (data as List)
+          .map((e) => EventModel.fromMap(e as Map<String, dynamic>))
+          .toList();
     } catch (e) {
-      return await _seedAndFetchSystemEvents(city, category: category);
+      print('Supabase etkinlik sorgu hatası: $e');
     }
+
+    // Eğer veritabanında önümüzdeki 14 gün içinde en az 3 taze etkinlik yoksa hemen üret
+    if (events.length < 3) {
+      final freshEvents = await _seedAndFetchSystemEvents(city, category: category);
+      // Birleştir ve tekrarlayanları temizle
+      final map = <String, EventModel>{};
+      for (final e in [...events, ...freshEvents]) {
+        map[e.title] = e;
+      }
+      events = map.values.toList();
+    }
+
+    events.sort((a, b) => a.startDate.compareTo(b.startDate));
+    return events;
   }
 
-  /// Veritabanı henüz beslenmemişse sistem etkinliklerini otomatik ekler
+  /// Veritabanında yaklaşan etkinlik azsa taze dinamik etkinlikleri üretir ve veritabanını günceller
   Future<List<EventModel>> _seedAndFetchSystemEvents(String city, {String? category}) async {
     final cityCoords = {
+      // Marmara
       'İstanbul': {'lat': 41.0082, 'lng': 28.9784, 'district': 'Kadıköy'},
-      'Ankara': {'lat': 39.9334, 'lng': 32.8597, 'district': 'Çankaya'},
-      'İzmir': {'lat': 38.4237, 'lng': 27.1428, 'district': 'Konak'},
       'Bursa': {'lat': 40.1885, 'lng': 29.0610, 'district': 'Nilüfer'},
       'Edirne': {'lat': 41.6771, 'lng': 26.5557, 'district': 'Merkez'},
       'Çanakkale': {'lat': 40.1553, 'lng': 26.4142, 'district': 'Merkez'},
+      'Kocaeli': {'lat': 40.8533, 'lng': 29.8815, 'district': 'İzmit'},
+      'Sakarya': {'lat': 40.6937, 'lng': 30.4358, 'district': 'Adapazarı'},
+      'Balıkesir': {'lat': 39.6484, 'lng': 27.8826, 'district': 'Merkez'},
+      'Tekirdağ': {'lat': 40.9784, 'lng': 27.5155, 'district': 'Süleymanpaşa'},
+      'Yalova': {'lat': 40.6500, 'lng': 29.2667, 'district': 'Merkez'},
+      // İç Anadolu
+      'Ankara': {'lat': 39.9334, 'lng': 32.8597, 'district': 'Çankaya'},
+      'Konya': {'lat': 37.8746, 'lng': 32.4932, 'district': 'Selcuklu'},
+      'Kayseri': {'lat': 38.7312, 'lng': 35.4787, 'district': 'Kocasinan'},
+      'Eskişehir': {'lat': 39.7767, 'lng': 30.5206, 'district': 'Teşvikiye'},
+      'Sivas': {'lat': 39.7477, 'lng': 37.0179, 'district': 'Merkez'},
+      'Nevkşehir': {'lat': 38.6939, 'lng': 34.6857, 'district': 'Üchisar'},
+      // Ege
+      'İzmir': {'lat': 38.4237, 'lng': 27.1428, 'district': 'Konak'},
       'Muğla': {'lat': 37.2153, 'lng': 28.3636, 'district': 'Bodrum'},
+      'Aydın': {'lat': 37.8560, 'lng': 27.8416, 'district': 'Efeler'},
+      'Denizli': {'lat': 37.7765, 'lng': 29.0864, 'district': 'Pamukkale'},
+      'Uşak': {'lat': 38.6823, 'lng': 29.4082, 'district': 'Merkez'},
+      'Manisa': {'lat': 38.6191, 'lng': 27.4289, 'district': 'Yunusemre'},
+      // Akdeniz
+      'Antalya': {'lat': 36.8969, 'lng': 30.7133, 'district': 'Muratpaşa'},
+      'Mersin': {'lat': 36.8000, 'lng': 34.6333, 'district': 'Akdeniz'},
+      'Adana': {'lat': 37.0017, 'lng': 35.3289, 'district': 'Seyhan'},
+      'Hatay': {'lat': 36.2021, 'lng': 36.1601, 'district': 'Antakya'},
+      'Isparta': {'lat': 37.7648, 'lng': 30.5566, 'district': 'Merkez'},
+      'Burdur': {'lat': 37.7262, 'lng': 30.2884, 'district': 'Merkez'},
+      // Karadeniz
+      'Trabzon': {'lat': 41.0027, 'lng': 39.7168, 'district': 'Merkez'},
+      'Samsun': {'lat': 41.2928, 'lng': 36.3313, 'district': 'Atakum'},
+      'Giresun': {'lat': 40.9128, 'lng': 38.3895, 'district': 'Merkez'},
+      'Ordu': {'lat': 40.9862, 'lng': 37.8797, 'district': 'Altınordu'},
+      'Rize': {'lat': 41.0201, 'lng': 40.5234, 'district': 'Merkez'},
+      'Zonguldak': {'lat': 41.4564, 'lng': 31.7987, 'district': 'Eregli'},
+      'Bolu': {'lat': 40.7360, 'lng': 31.5998, 'district': 'Merkez'},
+      // Doğu Anadolu
+      'Erzurum': {'lat': 39.9043, 'lng': 41.2679, 'district': 'Yakutiye'},
+      'Malatya': {'lat': 38.3552, 'lng': 38.3095, 'district': 'Battalgazi'},
+      'Van': {'lat': 38.4942, 'lng': 43.3800, 'district': 'Merkez'},
+      'Diyarbakır': {'lat': 37.9144, 'lng': 40.2306, 'district': 'Sur'},
+      'Gaziantep': {'lat': 37.0662, 'lng': 37.3833, 'district': 'Şahinbey'},
+      'Şanlıurfa': {'lat': 37.1591, 'lng': 38.7969, 'district': 'Eğikara'},
     };
 
     final info = cityCoords[city] ?? {'lat': 41.0082, 'lng': 28.9784, 'district': 'Merkez'};
@@ -245,6 +343,8 @@ class EventsService {
       final startDate = DateTime(now.year, now.month, now.day + (t['daysOffset'] as int), t['hours'] as int);
       final endDate = startDate.add(const Duration(hours: 2));
 
+      final externalId = 'sys_${city}_${t['category']}_${startDate.year}_${startDate.month}_${startDate.day}';
+
       final eventMap = {
         'title': t['title'],
         'description': t['description'],
@@ -258,7 +358,7 @@ class EventsService {
         'longitude': baseLng + (i * 0.005),
         'source_url': t['source_url'],
         'image_url': t['image_url'],
-        'external_id': 'sys_${city}_${t['category']}_${startDate.day}',
+        'external_id': externalId,
       };
 
       try {
@@ -266,7 +366,7 @@ class EventsService {
       } catch (_) {}
 
       createdEvents.add(EventModel(
-        id: 'sys_${city}_${i}',
+        id: externalId,
         title: t['title'] as String,
         description: t['description'] as String?,
         category: t['category'] as String?,
@@ -287,6 +387,7 @@ class EventsService {
     }
     return createdEvents;
   }
+
 
   // İlçeye göre etkinlikleri getir
   Future<List<EventModel>> getEventsByDistrict(String district) async {
