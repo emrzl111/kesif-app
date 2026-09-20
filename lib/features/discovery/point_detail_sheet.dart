@@ -6,9 +6,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../app/theme.dart';
 import '../../services/database_service.dart';
 import '../../services/chat_service.dart';
-import '../../services/auth_service.dart';
-import '../../shared/widgets/premium_paywall_sheet.dart';
+
 import '../../shared/models/models.dart';
+import '../../shared/widgets/share_card_widget.dart';
 
 class PointDetailSheet extends StatefulWidget {
   final DiscoveryPoint point;
@@ -663,13 +663,36 @@ class _PointDetailSheetState extends State<PointDetailSheet>
                   ),
                 ],
                 const SizedBox(height: 12),
-                Text(
-                  widget.point.title,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        widget.point.title,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    // Paylaş butonu
+                    IconButton(
+                      onPressed: () {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (_) => SharePointSheet(point: widget.point),
+                        );
+                      },
+                      icon: const Icon(
+                        Icons.share_rounded,
+                        color: AppColors.textSecondary,
+                      ),
+                      tooltip: 'Instagram\'da Paylaş',
+                    ),
+                  ],
                 ),
                 if (widget.point.addedByNickname != null) ...[
                   const SizedBox(height: 6),

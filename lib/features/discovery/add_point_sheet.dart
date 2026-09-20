@@ -7,6 +7,7 @@ import '../../services/database_service.dart';
 import '../../shared/models/models.dart';
 import 'package:uuid/uuid.dart';
 import 'package:path/path.dart' as p;
+import '../../shared/widgets/share_card_widget.dart';
 
 class AddPointSheet extends StatefulWidget {
   final double latitude;
@@ -152,7 +153,20 @@ class _AddPointSheetState extends State<AddPointSheet> {
 
       await DatabaseService().insertPoint(point, remoteImageUrl: remoteImageUrl);
       widget.onSaved();
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        Navigator.pop(context);
+        // Paylaş sayfasını aç
+        await Future.delayed(const Duration(milliseconds: 300));
+        if (mounted) {
+          showModalBottomSheet(
+            // ignore: use_build_context_synchronously
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (_) => SharePointSheet(point: point),
+          );
+        }
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _isSaving = false);

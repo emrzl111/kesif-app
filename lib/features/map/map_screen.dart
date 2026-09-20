@@ -52,7 +52,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
-  static const double _nearbyRadiusMeters = 500;
+
   static const double _pinRadiusMeters = 100; // Pin eklemek için max mesafe
 
   @override

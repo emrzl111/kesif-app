@@ -208,9 +208,7 @@ class _PharmacyScreenState extends State<PharmacyScreen>
           _isLoading = false;
         });
 
-        if (_mapController.camera != null) {
-          _mapController.move(_userLocation!, 14);
-        }
+        _mapController.move(_userLocation!, 14);
       } else {
         setState(() {
           _error = 'Veriler alınamadı. Daha sonra tekrar dene.';
