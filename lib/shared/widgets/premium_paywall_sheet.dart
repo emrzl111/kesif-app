@@ -1,6 +1,5 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import '../../app/theme.dart';
 import '../../services/auth_service.dart';
 
 class PremiumPaywallSheet extends StatefulWidget {

@@ -199,8 +199,10 @@ class _UserInfoSheetState extends State<UserInfoSheet> {
                     description: descController.text.trim(),
                   );
                   if (mounted) {
-                    Navigator.pop(context); // Close sheet
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    final nav = Navigator.of(context);
+                    final messenger = ScaffoldMessenger.of(context);
+                    nav.pop(); // Close sheet
+                    messenger.showSnackBar(
                       SnackBar(
                         content: Text(success ? 'Şikayetiniz yöneticilere iletildi. Teşekkür ederiz.' : 'Şikayet iletilemedi.'),
                         backgroundColor: success ? AppColors.success : AppColors.error,

@@ -6,8 +6,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:uuid/uuid.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
+
 import 'package:permission_handler/permission_handler.dart';
 import '../../app/theme.dart';
 import '../../services/location_service.dart';
@@ -410,9 +409,10 @@ class _TrackingScreenState extends State<TrackingScreen>
                                         source: ImageSource.camera,
                                         imageQuality: 80,
                                       );
-                                      if (xFile != null)
+                                      if (xFile != null) {
                                         setS(() =>
                                             photo = File(xFile.path));
+                                      }
                                     },
                                     child: Container(
                                       padding: const EdgeInsets.symmetric(
@@ -910,26 +910,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     );
   }
 
-  Widget _statItem(String value, String label, IconData icon) {
-    return Column(
-      children: [
-        Icon(icon, color: AppColors.textSecondary, size: 18),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: const TextStyle(
-            color: AppColors.textPrimary,
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
-        ),
-        Text(
-          label,
-          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-        ),
-      ],
-    );
-  }
 
   Widget _controlButton({
     required IconData icon,

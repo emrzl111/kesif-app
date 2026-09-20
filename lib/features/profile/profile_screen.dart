@@ -173,7 +173,7 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   @override
   Widget build(BuildContext context) {
-    final user = _auth.currentUser;
+
 
     return Scaffold(
       backgroundColor: AppColors.background,
