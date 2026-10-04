@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../core/app_logger.dart';
 
 class EventModel {
   final String id;
@@ -17,6 +18,8 @@ class EventModel {
   final double? longitude;
   final String? sourceUrl;
   final String? imageUrl;
+  /// null = ücretsiz, 0 = ücretsiz, pozitif = fiyat (TL)
+  final double? price;
 
   EventModel({
     required this.id,
@@ -32,7 +35,10 @@ class EventModel {
     this.longitude,
     this.sourceUrl,
     this.imageUrl,
+    this.price,
   });
+
+  bool get isFree => price == null || price == 0;
 
   factory EventModel.fromMap(Map<String, dynamic> map) {
     return EventModel(
@@ -49,6 +55,7 @@ class EventModel {
       longitude: map['longitude'] != null ? (map['longitude'] as num).toDouble() : null,
       sourceUrl: map['source_url'] as String?,
       imageUrl: map['image_url'] as String?,
+      price: map['price'] != null ? (map['price'] as num).toDouble() : null,
     );
   }
 }
@@ -103,7 +110,7 @@ class EventsService {
         return {'city': city, 'district': district};
       }
     } catch (e) {
-      print('Konum tespit hatası: $e');
+      AppLogger.error('Konum tespit hatası', error: e, tag: 'EventsService');
     }
     return {'city': null, 'district': null};
   }
@@ -198,7 +205,7 @@ class EventsService {
           .map((e) => EventModel.fromMap(e as Map<String, dynamic>))
           .toList();
     } catch (e) {
-      print('Supabase etkinlik sorgu hatası: $e');
+      AppLogger.error('Supabase etkinlik sorgu hatası', error: e, tag: 'EventsService');
     }
 
     // Eğer veritabanında önümüzdeki 14 gün içinde en az 3 taze etkinlik yoksa hemen üret
@@ -275,12 +282,57 @@ class EventsService {
 
     final templates = [
       {
+        'title': '$city Sabah Yoga & Meditasyon',
+        'category': 'spor',
+        'description': 'Şehir parkında açık havada ücretsiz sabah yogası. Tüm seviyelere uygun, mat getirmeniz yeterli.',
+        'location_name': 'Kent Parkı',
+        'daysOffset': 0,
+        'hours': 8,
+        'price': null, // Ücretsiz
+        'image_url': 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=500',
+        'source_url': 'https://www.kulturportali.gov.tr',
+      },
+      {
+        'title': '$city Caz & Akustik Öğleden Sonra',
+        'category': 'konser',
+        'description': 'Şehrin kalbinde ücretsiz akustik caz performansı. Öğle aralarını müzikle geçirin.',
+        'location_name': 'Belediye Meydanı Sahnesi',
+        'daysOffset': 0,
+        'hours': 13,
+        'price': null, // Ücretsiz
+        'image_url': 'https://images.unsplash.com/photo-1415201364774-f6f0bb35f28f?w=500',
+        'source_url': 'https://www.kulturportali.gov.tr',
+      },
+      {
+        'title': '$city Fotoğraf & Sanat Sergisi',
+        'category': 'sergi',
+        'description': 'Yerel fotoğraf sanatçılarının gözünden şehir. Bugün 10:00-20:00 arası kapılar açık, giriş ücretsiz.',
+        'location_name': 'Kültür Merkezi Galeri',
+        'daysOffset': 0,
+        'hours': 10,
+        'price': null, // Ücretsiz
+        'image_url': 'https://images.unsplash.com/photo-1531243269054-5ebf6f3b0b6e?w=500',
+        'source_url': 'https://www.kulturportali.gov.tr',
+      },
+      {
+        'title': '$city Akşam Tiyatro Gösterisi',
+        'category': 'tiyatro',
+        'description': 'Bugün akşam sahnede! İki perdelik komedi oyunu. Sınırlı koltuk.',
+        'location_name': 'Şehir Tiyatroları',
+        'daysOffset': 0,
+        'hours': 20,
+        'price': 180.0, // Ücretli
+        'image_url': 'https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?w=500',
+        'source_url': city == 'İstanbul' ? 'https://sehirtiyatrolari.ibb.istanbul' : 'https://www.kulturportali.gov.tr',
+      },
+      {
         'title': '$city Belediye Parkı Açık Hava Konseri',
         'category': 'konser',
-        'description': 'Belediyemizin düzenlediği halka açık, ücretsiz yaz konserleri kapsamında yerel sanatçılar sahne alıyor. Katılım tamamen ücretsizdir.',
+        'description': 'Belediyemizin düzenlediği halka açık, ücretsiz yaz konserleri kapsamında yerel sanatçılar sahne alıyor.',
         'location_name': 'Kent Parkı Amfi Tiyatro',
         'daysOffset': 1,
         'hours': 20,
+        'price': null, // Ücretsiz
         'image_url': 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=500',
         'source_url': city == 'İstanbul' ? 'https://kultur.istanbul/etkinlikler' : 'https://www.kulturportali.gov.tr',
       },
@@ -291,50 +343,34 @@ class EventsService {
         'location_name': 'Belediye Kültür Merkezi Sergi Salonu',
         'daysOffset': 2,
         'hours': 14,
+        'price': null, // Ücretsiz
         'image_url': 'https://images.unsplash.com/photo-1531243269054-5ebf6f3b0b6e?w=500',
         'source_url': 'https://www.kulturportali.gov.tr/turkiye/genel/etkinlik',
       },
       {
-        'title': '$city Halk Eğitim Seramik Atölyesi',
+        'title': '$city Seramik & Çömlek Atölyesi',
         'category': 'atolye',
-        'description': 'Belediyemiz tarafından düzenlenen ücretsiz hobi atölyesi. Tüm malzemeler belediye tarafından karşılanacaktır.',
-        'location_name': 'Halk Eğitim Merkezi Atölye Salonu',
+        'description': 'Profesyonel çömlekçi eşliğinde uygulamalı seramik atölyesi. Tüm malzemeler dahildir.',
+        'location_name': 'Sanat Atölyesi',
         'daysOffset': 3,
         'hours': 15,
+        'price': 250.0, // Ücretli atölye
         'image_url': 'https://images.unsplash.com/photo-1578749556568-bc2c40e68b61?w=500',
         'source_url': 'https://e-yaygin.meb.gov.tr',
       },
       {
-        'title': '$city Ücretsiz Şehir Tiyatroları Gösterisi',
-        'category': 'tiyatro',
-        'description': 'Halka açık ve ücretsiz sergilenecek olan iki perdelik klasik tiyatro oyunu. Girişler ücretsizdir.',
-        'location_name': 'Şehir Tiyatroları Sahnesi',
-        'daysOffset': 4,
-        'hours': 19,
-        'image_url': 'https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?w=500',
-        'source_url': city == 'İstanbul' ? 'https://sehirtiyatrolari.ibb.istanbul' : 'https://www.kulturportali.gov.tr',
-      },
-      {
-        'title': '$city Açık Hava Sinema Gecesi',
-        'category': 'sinema',
-        'description': 'Yıldızlar altında ücretsiz sinema keyfi! Sandalyeni kap gel, belediyemizin ücretsiz mısır ikramıyla açık havada sinema.',
-        'location_name': 'Sahil Etkinlik Alanı',
-        'daysOffset': 5,
-        'hours': 21,
-        'image_url': 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500',
-        'source_url': city == 'İstanbul' ? 'https://kultur.istanbul' : 'https://www.kulturportali.gov.tr',
-      },
-      {
         'title': '$city Geleneksel Şehir Festivali',
         'category': 'festival',
-        'description': 'Yöresel ürünler stantları, halk oyunları gösterileri ve ücretsiz sokak konserleriyle dolu dolu geçecek mahalle şenliği.',
+        'description': 'Yöresel ürünler stantları, halk oyunları gösterileri ve ücretsiz sokak konserleriyle dolu geleneksel şehir festivali.',
         'location_name': 'Belediye Meydanı',
-        'daysOffset': 7,
+        'daysOffset': 5,
         'hours': 11,
+        'price': null, // Ücretsiz
         'image_url': 'https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?w=500',
         'source_url': 'https://www.kulturportali.gov.tr',
       },
     ];
+
 
     final createdEvents = <EventModel>[];
 
@@ -344,6 +380,8 @@ class EventsService {
       final endDate = startDate.add(const Duration(hours: 2));
 
       final externalId = 'sys_${city}_${t['category']}_${startDate.year}_${startDate.month}_${startDate.day}';
+
+      final eventPrice = t['price'] as double?;
 
       final eventMap = {
         'title': t['title'],
@@ -359,6 +397,7 @@ class EventsService {
         'source_url': t['source_url'],
         'image_url': t['image_url'],
         'external_id': externalId,
+        if (eventPrice != null) 'price': eventPrice,
       };
 
       try {
@@ -379,6 +418,7 @@ class EventsService {
         longitude: baseLng + (i * 0.005),
         sourceUrl: t['source_url'] as String?,
         imageUrl: t['image_url'] as String?,
+        price: eventPrice,
       ));
     }
 
@@ -402,7 +442,7 @@ class EventsService {
 
       return (data as List).map((e) => EventModel.fromMap(e as Map<String, dynamic>)).toList();
     } catch (e) {
-      print('İlçe etkinlikleri yüklenirken hata: $e');
+      AppLogger.error('İlçe etkinlikleri yüklenirken hata', error: e, tag: 'EventsService');
       return [];
     }
   }

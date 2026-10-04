@@ -49,3 +49,7 @@ app.*.map.json
 *.aab
 *.zip
 
+# Gizli yapılandırma (API anahtarları --dart-define ile inject edilir)
+# launch.json yerel olarak saklanır, Git'e GİTMEZ
+.vscode/launch.json
+

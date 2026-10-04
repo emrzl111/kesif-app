@@ -42,15 +42,40 @@ class _ChatScreenState extends State<ChatScreen> {
     _loadMessages();
     _setupSubscription();
     _markAsRead();
-    // Realtime haricinde arka planda 3 saniyede bir otomatik yeni mesaj kontrolü (bağlantı kesilmesine karşı)
+    // Realtime bağlanana kadar yedek kontrol çalışır; bağlanınca durdurulur.
+    _startPolling();
+  }
+
+  void _startPolling() {
+    if (_pollTimer != null) return;
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _fetchNewMessages();
     });
   }
 
+  void _stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  void _onRealtimeStatus(bool isConnected) {
+    if (!mounted) return;
+    if (isConnected) {
+      _stopPolling();
+      // Bağlantı kurulmadan önce kaçan mesajlar için bir kez telafi çek
+      _fetchNewMessages();
+    } else {
+      _startPolling();
+    }
+  }
+
+  /// Yalnızca son mesajdan sonra gelenleri çeker.
   Future<void> _fetchNewMessages() async {
     if (!mounted || _isLoading) return;
-    final msgs = await _chatService.getMessages(widget.friendId);
+    final lastCreatedAt =
+        _messages.isNotEmpty ? _messages.last['created_at']?.toString() : null;
+    final msgs =
+        await _chatService.getMessagesAfter(widget.friendId, lastCreatedAt);
     if (!mounted) return;
     bool hasNew = false;
     for (final m in msgs) {
@@ -70,7 +95,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     ChatScreen.activeChatFriendId = null;
-    _pollTimer?.cancel();
+    _stopPolling();
     if (_subscription != null) {
       _chatService.unsubscribe(_subscription!);
     }
@@ -117,7 +142,7 @@ class _ChatScreenState extends State<ChatScreen> {
           _markAsRead();
         }
       }
-    });
+    }, onStatusChange: _onRealtimeStatus);
   }
 
   void _scrollToBottom() {

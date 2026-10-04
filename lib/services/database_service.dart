@@ -4,6 +4,7 @@ import 'dart:convert';
 import '../shared/models/models.dart';
 import 'package:uuid/uuid.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../core/app_logger.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -98,7 +99,7 @@ class DatabaseService {
                 'ALTER TABLE discovery_points ADD COLUMN ${entry.key} ${entry.value}',
               );
             } catch (e) {
-              print('Sütun eklenemedi (${entry.key}): $e');
+              AppLogger.warning('Sütun eklenemedi (${entry.key}): $e', tag: 'DatabaseService');
             }
           }
         }
@@ -319,8 +320,13 @@ class DatabaseService {
           if (point.discountCode != null) 'discountCode': point.discountCode,
           if (point.discountNote != null) 'discountNote': point.discountNote,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
-      } catch (retryError) {
-        print('SQLite yeniden deneme hatası: $retryError');
+      } catch (retryError, stack) {
+        AppLogger.error(
+          'SQLite yeniden deneme hatası',
+          error: retryError,
+          stack: stack,
+          tag: 'DatabaseService',
+        );
         rethrow;
       }
     }
@@ -329,30 +335,53 @@ class DatabaseService {
     _syncToSupabase(point, remoteImageUrl: remoteImageUrl);
   }
 
+  /// Noktayı Supabase'e arka planda eşitler.
+  /// İlk denemede başarısız olursa 10 saniye bekleyip bir kez daha dener.
+  /// Her iki denemede de başarısız olursa AppLogger ile loglar.
   void _syncToSupabase(DiscoveryPoint point, {String? remoteImageUrl}) async {
-    try {
+    Future<void> doSync() async {
       final user = Supabase.instance.client.auth.currentUser;
-      if (user != null) {
-        final nickname = await _getNicknameForUser(user.id);
-        await Supabase.instance.client
-            .from('discovery_points')
-            .insert({
-              'id': point.id,
-              'user_id': user.id,
-              'title': point.title,
-              'description': point.description,
-              'latitude': point.latitude,
-              'longitude': point.longitude,
-              'category': point.category.index,
-              'is_pet_friendly': point.isPetFriendly,
-              // Supabase Storage'dan gelen public URL (varsa)
-              if (remoteImageUrl != null) 'image_url': remoteImageUrl,
-              if (nickname != null) 'added_by_nickname': nickname,
-            })
-            .timeout(const Duration(seconds: 15));
+      if (user == null) return;
+      final nickname = await _getNicknameForUser(user.id);
+      await Supabase.instance.client
+          .from('discovery_points')
+          .insert({
+            'id': point.id,
+            'user_id': user.id,
+            'title': point.title,
+            'description': point.description,
+            'latitude': point.latitude,
+            'longitude': point.longitude,
+            'category': point.category.index,
+            'is_pet_friendly': point.isPetFriendly,
+            if (remoteImageUrl != null) 'image_url': remoteImageUrl,
+            if (nickname != null) 'added_by_nickname': nickname,
+          })
+          .timeout(const Duration(seconds: 15));
+    }
+
+    try {
+      await doSync();
+      AppLogger.debug('Nokta Supabase\'e eşitlendi: ${point.id}', tag: 'DatabaseService');
+    } catch (firstError) {
+      AppLogger.warning(
+        'Supabase eşitlemesi başarısız, 10sn sonra tekrar denenecek: ${point.id}',
+        tag: 'DatabaseService',
+      );
+      // Bir kez yeniden dene
+      await Future.delayed(const Duration(seconds: 10));
+      try {
+        await doSync();
+        AppLogger.info('Supabase eşitlemesi yeniden denemede başarılı: ${point.id}', tag: 'DatabaseService');
+      } catch (retryError, stack) {
+        AppLogger.error(
+          'Supabase eşitlemesi her iki denemede başarısız — nokta: ${point.id}',
+          error: retryError,
+          stack: stack,
+          tag: 'DatabaseService',
+        );
+        // Veri SQLite\'ta güvende; sync bir sonraki açılışta yeniden denenebilir
       }
-    } catch (e) {
-      print('Supabase arka plan eşitleme hatası: $e');
     }
   }
 

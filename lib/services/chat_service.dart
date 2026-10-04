@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../core/app_logger.dart';
 
 class ChatService {
   static final ChatService _instance = ChatService._internal();
@@ -33,7 +34,7 @@ class ChatService {
           .update({'fcm_token': token})
           .eq('id', myId);
     } catch (e) {
-      print('FCM token kaydedilemedi: $e');
+      AppLogger.error('FCM token kaydedilemedi', error: e, tag: 'ChatService');
     }
   }
 
@@ -52,7 +53,7 @@ class ChatService {
 
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      print('Arama hatası: $e');
+      AppLogger.error('Arama hatası', error: e, tag: 'ChatService');
       return [];
     }
   }
@@ -70,7 +71,7 @@ class ChatService {
       });
       return true;
     } catch (e) {
-      print('Arkadaşlık isteği hatası: $e');
+      AppLogger.error('Arkadaşlık isteği hatası', error: e, tag: 'ChatService');
       return false;
     }
   }
@@ -95,7 +96,7 @@ class ChatService {
 
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      print('Arkadaşlık listeleme hatası: $e');
+      AppLogger.error('Arkadaşlık listeleme hatası', error: e, tag: 'ChatService');
       return [];
     }
   }
@@ -109,7 +110,7 @@ class ChatService {
           .eq('id', friendshipId);
       return true;
     } catch (e) {
-      print('İstek kabul hatası: $e');
+      AppLogger.error('İstek kabul hatası', error: e, tag: 'ChatService');
       return false;
     }
   }
@@ -123,7 +124,7 @@ class ChatService {
           .eq('id', friendshipId);
       return true;
     } catch (e) {
-      print('Arkadaşlık silme hatası: $e');
+      AppLogger.error('Arkadaşlık silme hatası', error: e, tag: 'ChatService');
       return false;
     }
   }
@@ -142,7 +143,29 @@ class ChatService {
 
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      print('Mesaj çekme hatası: $e');
+      AppLogger.error('Mesaj çekme hatası', error: e, tag: 'ChatService');
+      return [];
+    }
+  }
+
+  // Belirli bir zamandan sonraki mesajları getir (yedek kontrol için hafif sorgu)
+  Future<List<Map<String, dynamic>>> getMessagesAfter(
+      String friendId, String? afterCreatedAt) async {
+    final myId = currentUserId;
+    if (myId == null) return [];
+    if (afterCreatedAt == null) return getMessages(friendId);
+
+    try {
+      final response = await _supabase
+          .from('messages')
+          .select()
+          .or('and(sender_id.eq.$myId,receiver_id.eq.$friendId),and(sender_id.eq.$friendId,receiver_id.eq.$myId)')
+          .gt('created_at', afterCreatedAt)
+          .order('created_at', ascending: true);
+
+      return List<Map<String, dynamic>>.from(response);
+    } catch (e) {
+      AppLogger.error('Yeni mesaj çekme hatası', error: e, tag: 'ChatService');
       return [];
     }
   }
@@ -160,7 +183,7 @@ class ChatService {
       }).select().single();
       return Map<String, dynamic>.from(response);
     } catch (e) {
-      print('Mesaj gönderme hatası: $e');
+      AppLogger.error('Mesaj gönderme hatası', error: e, tag: 'ChatService');
       return null;
     }
   }
@@ -168,8 +191,9 @@ class ChatService {
   // Mesaj Realtime Aboneliği
   RealtimeChannel subscribeToMessages(
     String friendId,
-    void Function(Map<String, dynamic> message) onNewMessage,
-  ) {
+    void Function(Map<String, dynamic> message) onNewMessage, {
+    void Function(bool isConnected)? onStatusChange,
+  }) {
     final myId = currentUserId ?? '';
     final channelName = 'chat_${myId}_${friendId}_${DateTime.now().millisecondsSinceEpoch}';
     
@@ -193,7 +217,9 @@ class ChatService {
             }
           },
         )
-        .subscribe();
+        .subscribe((status, [error]) {
+      onStatusChange?.call(status == RealtimeSubscribeStatus.subscribed);
+    });
 
     return channel;
   }
@@ -300,7 +326,7 @@ class ChatService {
       });
       return true;
     } catch (e) {
-      print('Engelleme hatası: $e');
+      AppLogger.error('Engelleme hatası', error: e, tag: 'ChatService');
       return false;
     }
   }
@@ -317,7 +343,7 @@ class ChatService {
           .eq('blocked_id', blockedUserId);
       return true;
     } catch (e) {
-      print('Engel kaldırma hatası: $e');
+      AppLogger.error('Engel kaldırma hatası', error: e, tag: 'ChatService');
       return false;
     }
   }
@@ -346,7 +372,7 @@ class ChatService {
       }
       return ids.toSet().toList();
     } catch (e) {
-      print('Engellenen listesi çekme hatası: $e');
+      AppLogger.error('Engellenen listesi çekme hatası', error: e, tag: 'ChatService');
       return [];
     }
   }
@@ -370,21 +396,85 @@ class ChatService {
       });
       return true;
     } catch (e) {
-      print('Şikayet gönderme hatası: $e');
+      AppLogger.error('Şikayet gönderme hatası', error: e, tag: 'ChatService');
       return false;
     }
   }
 
   // 🗑️ Hesap Kalıcı Silme (KVKK Uyumlu)
+  /// Kullanıcıya ait TÜM verileri sıralı olarak siler:
+  /// messages → friendships → user_blocks → reports → discovery_points
+  /// → FCM token temizle → profiles → auth.signOut()
+  ///
+  /// NOT: Supabase RLS politikalarının bu silme işlemlerine izin verdiğinden
+  /// emin olun. Gerekirse Supabase Dashboard > Authentication > Policies
+  /// bölümünden kontrol edin.
   Future<bool> deleteAccount() async {
     final myId = currentUserId;
     if (myId == null) return false;
+
+    AppLogger.warning('Hesap silme başlatıldı: $myId', tag: 'ChatService');
+
     try {
+      // 1. Gönderilen ve alınan tüm mesajlar
+      await _supabase
+          .from('messages')
+          .delete()
+          .or('sender_id.eq.$myId,receiver_id.eq.$myId');
+
+      // 2. Tüm arkadaşlık ilişkileri
+      await _supabase
+          .from('friendships')
+          .delete()
+          .or('sender_id.eq.$myId,receiver_id.eq.$myId');
+
+      // 3. Engelleme kayıtları (her iki yön)
+      await _supabase
+          .from('user_blocks')
+          .delete()
+          .or('blocker_id.eq.$myId,blocked_id.eq.$myId');
+
+      // 4. Raporlar (gönderilen)
+      await _supabase
+          .from('reports')
+          .delete()
+          .eq('reporter_id', myId);
+
+      // 5. Nokta ziyaret geçmişi
+      await _supabase
+          .from('point_visits')
+          .delete()
+          .eq('user_id', myId);
+
+      // 6. Kullanıcının eklediği keşif noktaları
+      await _supabase
+          .from('discovery_points')
+          .delete()
+          .eq('user_id', myId);
+
+      // 7. FCM token'ı temizle (null yap, profil silinmeden önce)
+      try {
+        await _supabase
+            .from('profiles')
+            .update({'fcm_token': null})
+            .eq('id', myId);
+      } catch (_) {}
+
+      // 8. Profil kaydı (CASCADE ile bağlı kayıtlar DB tarafında da temizlenir)
       await _supabase.from('profiles').delete().eq('id', myId);
+
+      // 9. Oturumu kapat
       await _supabase.auth.signOut();
+
+      AppLogger.info('Hesap başarıyla silindi: $myId', tag: 'ChatService');
       return true;
-    } catch (e) {
-      print('Hesap silme hatası: $e');
+    } catch (e, stack) {
+      AppLogger.error(
+        'Hesap silme hatası — kullanıcı: $myId',
+        error: e,
+        stack: stack,
+        tag: 'ChatService',
+      );
       return false;
     }
   }

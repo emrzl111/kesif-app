@@ -5,14 +5,15 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app/theme.dart';
 import 'app/main_shell.dart';
+import 'config/app_config.dart';
+import 'core/app_logger.dart';
 import 'features/auth/login_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'services/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-// ⚠️ Supabase yapılandırması
-const String _supabaseUrl = 'https://bhgefvqpojdersndsetp.supabase.co';
-const String _supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJoZ2VmdnFwb2pkZXJzbmRzZXRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1MjUwNTIsImV4cCI6MjA5OTEwMTA1Mn0.7jcIPEv8KzyFjuVnvtx_d9JkPBAhs0HYHkGEhgPil5M';
+// ✅ Supabase yapılandırması -- dart-define ile inject edilir (AppConfig)
+// Bkz. .vscode/launch.json veya CI/CD ortam değişkenleri
 
 /// Uygulama arka plandayken / kapalıyken gelen FCM mesajlarını işler
 @pragma('vm:entry-point')
@@ -22,6 +23,8 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 Future<void> main() async {
+  // API anahtarlarının inject edildiğini doğrula (debug modunda assertion)
+  AppConfig.validate();
   WidgetsFlutterBinding.ensureInitialized();
 
   // Sistem UI ayarları
@@ -46,9 +49,9 @@ Future<void> main() async {
 
   // Supabase başlat
   await Supabase.initialize(
-    url: _supabaseUrl,
+    url: AppConfig.supabaseUrl,
     // ignore: deprecated_member_use
-    anonKey: _supabaseAnonKey,
+    anonKey: AppConfig.supabaseAnonKey,
   );
 
   // Bildirim servisini başlat
@@ -63,6 +66,9 @@ Future<void> main() async {
   Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
     if (data.session != null) {
       await NotificationService.saveFcmToken();
+      AppLogger.info('Kullanıcı oturum açtı: ${data.session?.user.id}', tag: 'Auth');
+    } else {
+      AppLogger.info('Kullanıcı oturum kapattı', tag: 'Auth');
     }
   });
 

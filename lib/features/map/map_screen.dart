@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../app/theme.dart';
+import '../../core/app_logger.dart';
 import '../../services/location_service.dart';
 import '../../services/database_service.dart';
 import '../../shared/models/models.dart';
@@ -15,6 +16,11 @@ import '../discovery/point_detail_sheet.dart';
 import '../../shared/widgets/premium_paywall_sheet.dart';
 import '../../services/auth_service.dart';
 import '../pharmacy/pharmacy_screen.dart' show Pharmacy;
+import 'widgets/map_markers.dart';
+import 'widgets/pharmacy_panel.dart';
+import 'widgets/weather_card_widget.dart';
+import '../../services/weather_service.dart';
+import '../../services/events_service.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -48,6 +54,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
   bool _useSatelliteMap = false; // Uydu haritası katmanı (Premium)
   bool _filterOnlyPetFriendly = false; // Pati dostu filtresi (Premium)
   int _tileLayerResetKey = 0; // Harita siyah ekran hatasını çözmek için dinamik key sayacı
+  WeatherData? _weatherData;
+  String _weatherLocationText = 'İstanbul / Beyoğlu';
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -89,12 +97,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
       });
       _mapController.move(_userLocation!, 15);
       _loadPharmacies(pos.latitude, pos.longitude); // Eczaneleri yükle
+      _loadWeather(pos.latitude, pos.longitude); // Hava durumunu yükle
     } else if (mounted) {
       setState(() {
         _isLoadingLocation = false;
         _userLocation = const LatLng(41.0082, 28.9784); // İstanbul'u varsayılan yap
       });
       _loadPharmacies(41.0082, 28.9784); // Varsayılan konum için de eczaneleri yükle!
+      _loadWeather(41.0082, 28.9784); // Hava durumunu yükle
     }
     _locationService.startTracking();
     _locationService.positionStream.listen((pos) {
@@ -103,6 +113,36 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
         _applyFilters();
       }
     });
+  }
+
+  Future<void> _loadWeather(double lat, double lon) async {
+    try {
+      if (_weatherData == null && mounted) {
+        setState(() {
+          _weatherData = WeatherData.mock();
+        });
+      }
+
+      final cityInfo = await EventsService().detectUserCityAndDistrict();
+      final city = cityInfo['city'];
+      final district = cityInfo['district'];
+      if (mounted && (city != null || district != null)) {
+        setState(() {
+          if (city != null && district != null) {
+            _weatherLocationText = '$city / $district';
+          } else {
+            _weatherLocationText = city ?? district ?? 'İstanbul / Beyoğlu';
+          }
+        });
+      }
+
+      final data = await WeatherService().getWeather(lat, lon);
+      if (mounted) {
+        setState(() {
+          _weatherData = data;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadPharmacies(double lat, double lon) async {
@@ -248,7 +288,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
         final res = await query;
         data = res as List<dynamic>;
       } catch (e) {
-        print('Supabase profiles join hatası, profilesiz çekiliyor: $e');
+        AppLogger.warning('Supabase profiles join hatası, profilesiz çekiliyor: $e', tag: 'MapScreen');
         var query = Supabase.instance.client
             .from('discovery_points')
             .select('*');
@@ -292,7 +332,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
         _applyFilters();
       }
     } catch (e) {
-      print('Supabase noktaları yükleme hatası: $e');
+      AppLogger.error('Supabase noktaları yükleme hatası', error: e, tag: 'MapScreen');
     }
 
     final Map<String, List<int>> pointRatings = {};
@@ -307,7 +347,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
         pointRatings.putIfAbsent(pId, () => []).add(rating);
       }
     } catch (e) {
-      print('Ziyaret verileri toplu çekme hatası: $e');
+      AppLogger.error('Ziyaret verileri toplu çekme hatası', error: e, tag: 'MapScreen');
     }
 
     if (mounted) {
@@ -510,134 +550,36 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
         children: [
           _buildMap(),
           _buildTopBar(),
-          _buildCategorySidebar(), // Sağdaki dikey menü geri getirildi
-          if (_showPharmacies) _buildPharmacyListPanel(), // Eczane listesi paneli
+          // Eczane listesi paneli
+          if (_showPharmacies)
+            PharmacyListPanel(
+              pharmacies: _pharmacies,
+              navigationTarget: _navigationTarget,
+              isOnDuty: _isPharmacyOnDuty,
+              onClose: () {
+                setState(() {
+                  _pharmacyFilterActive = false;
+                  _showPharmacies = false;
+                });
+                _applyFilters();
+              },
+              onPharmacyTap: (ph) =>
+                  _mapController.move(LatLng(ph.lat, ph.lon), 16),
+              onPharmacyNavTap: _showPharmacyInfo,
+            ),
           _buildBottomControls(),
-          if (_isLoadingLocation) _buildLoadingOverlay(),
-          if (_isLoadingRoute) _buildRouteLoadingIndicator(),
-          if (_navigationTarget != null) _buildNavigationBanner(),
+          if (_isLoadingLocation) const MapLoadingOverlay(),
+          if (_isLoadingRoute) const RouteLoadingIndicator(),
+          if (_navigationTarget != null)
+            NavigationBanner(
+              targetTitle: _navigationTarget!.title,
+              onClose: _clearNavigation,
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildPharmacyListPanel() {
-    return Positioned(
-      left: 16,
-      top: 80,
-      bottom: 95,
-      width: 250,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.surface.withValues(alpha: 0.95),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.border),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
-              blurRadius: 16,
-              offset: const Offset(4, 4),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                color: const Color(0xFFE53935).withValues(alpha: 0.1),
-                child: Row(
-                  children: [
-                    const Icon(Icons.local_hospital_rounded, color: Color(0xFFE53935), size: 20),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Nöbetçi Eczaneler',
-                      style: TextStyle(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const Spacer(),
-                    GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _pharmacyFilterActive = false;
-                          _showPharmacies = false;
-                        });
-                        _applyFilters();
-                      },
-                      child: const Icon(Icons.close, color: AppColors.textSecondary, size: 18),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1, color: AppColors.border),
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(8),
-                  itemCount: _pharmacies.length,
-                  itemBuilder: (context, index) {
-                    final ph = _pharmacies[index];
-                    final isTarget = _navigationTarget?.title == ph.name;
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: isTarget ? const Color(0xFFE53935).withValues(alpha: 0.08) : AppColors.card,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isTarget ? const Color(0xFFE53935) : AppColors.border,
-                        ),
-                      ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                        title: Text(
-                          ph.name,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 4),
-                            Text(
-                              ph.address ?? 'Adres yok',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
-                            ),
-                          ],
-                        ),
-                        trailing: GestureDetector(
-                          onTap: () {
-                            // Eczaneye direkt navigasyon çiz
-                            _showPharmacyInfo(ph);
-                          },
-                          child: const CircleAvatar(
-                            radius: 16,
-                            backgroundColor: Color(0xFFE53935),
-                            child: Icon(Icons.navigation_rounded, color: Colors.white, size: 14),
-                          ),
-                        ),
-                        onTap: () {
-                          _mapController.move(LatLng(ph.lat, ph.lon), 16);
-                        },
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _buildMap() {
     final isLoggedIn = Supabase.instance.client.auth.currentSession != null;
@@ -696,8 +638,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
           markers: [
             ..._filteredPoints.map((point) => Marker(
                   point: LatLng(point.latitude, point.longitude),
-                  width: 44,
-                  height: 54,
+                  width: 58,
+                  height: 62,
                   child: GestureDetector(
                     onTap: () => _showPointDetail(point),
                     child: _buildPointMarker(point),
@@ -899,797 +841,367 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
     );
   }
 
-  Widget _buildPointMarker(DiscoveryPoint point) {
-    final color = Color(point.category.colorValue);
-    final isTarget = _navigationTarget?.id == point.id;
-    final isSponsored = point.isSponsored;
+  Widget _buildPointMarker(DiscoveryPoint point) =>
+      PointMarker(
+        point: point,
+        navigationTarget: _navigationTarget,
+        pointRatings: _pointRatings,
+      );
 
-    // Altın halka / Hotspot kontrolü
-    final ratings = _pointRatings[point.id] ?? [];
-    final visitorCount = ratings.length;
-    final avgRating = visitorCount > 0 ? ratings.reduce((a, b) => a + b) / visitorCount : 0.0;
-    final isHotspot = avgRating >= 4.5 || visitorCount >= 3;
+  Widget _buildNavTargetMarker() => const NavTargetMarker();
 
-    final pinColor = isSponsored
-        ? const Color(0xFFFFD700)
-        : (isTarget ? const Color(0xFF2196F3) : color);
+  Widget _buildUserLocationMarker() =>
+      UserLocationMarker(pulseAnimation: _pulseAnimation);
 
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Column(
+  Widget _buildTopBar() {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: isSponsored ? 46 : 40,
-              height: isSponsored ? 46 : 40,
-              decoration: BoxDecoration(
-                gradient: isSponsored
-                    ? const LinearGradient(
-                        colors: [Color(0xFFFFD700), Color(0xFFFF8C00)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      )
-                    : null,
-                color: isSponsored ? null : pinColor,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: isSponsored
-                      ? const Color(0xFFFFF8DC)
-                      : (isHotspot ? const Color(0xFFFFD700) : Colors.white),
-                  width: isSponsored ? 3.5 : (isHotspot ? 3.5 : (isTarget ? 3 : 2.5)),
+            // ── Üst satır: Konum | Arama | +Nöbetçi ──
+            Row(
+              children: [
+                // Konum pill
+                Container(
+                  height: 44,
+                  padding: const EdgeInsets.symmetric(horizontal: 11),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface.withValues(alpha: 0.95),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: AppColors.border),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.location_on_rounded, color: AppColors.primary, size: 14),
+                      SizedBox(width: 4),
+                      Text(
+                        _weatherLocationText.length > 15
+                            ? '${_weatherLocationText.substring(0, 12)}...'
+                            : _weatherLocationText,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      SizedBox(width: 3),
+                      Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.textSecondary, size: 16),
+                    ],
+                  ),
                 ),
-                boxShadow: [
-                  if (isSponsored)
-                    BoxShadow(
-                      color: const Color(0xFFFFD700).withValues(alpha: 0.95),
-                      blurRadius: 26,
-                      spreadRadius: 6,
-                    )
-                  else if (isHotspot)
-                    BoxShadow(
-                      color: const Color(0xFFFFD700).withValues(alpha: 0.9),
-                      blurRadius: 20,
-                      spreadRadius: 4,
-                    )
-                  else
-                    BoxShadow(
-                      color: pinColor.withValues(alpha: 0.75),
-                      blurRadius: 16,
-                      spreadRadius: 3,
+                const SizedBox(width: 8),
+                // KM Mesafe Filtresi
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      final isLoggedIn =
+                          Supabase.instance.client.auth.currentSession != null;
+                      if (!isLoggedIn) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text(
+                                '🔒 Kayıtsız kullanıcılar 1 km ile sınırlıdır.'),
+                            backgroundColor: AppColors.primary,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                        );
+                        return;
+                      }
+                      final isPremium = AuthService.isPremiumMock;
+                      if (!isPremium) {
+                        showModalBottomSheet<bool>(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (_) => const PremiumPaywallSheet(),
+                        ).then((bought) {
+                          if (bought == true && mounted) {
+                            setState(() => MapScreen.selectedRadiusKm = 5.0);
+                            _applyFilters();
+                          }
+                        });
+                        return;
+                      }
+                      setState(() {
+                        if (MapScreen.selectedRadiusKm == null) {
+                          MapScreen.selectedRadiusKm = 1.0;
+                        } else if (MapScreen.selectedRadiusKm == 1.0) {
+                          MapScreen.selectedRadiusKm = 5.0;
+                        } else if (MapScreen.selectedRadiusKm == 5.0) {
+                          MapScreen.selectedRadiusKm = 10.0;
+                        } else {
+                          MapScreen.selectedRadiusKm = null;
+                        }
+                      });
+                      _applyFilters();
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      height: 44,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        color: MapScreen.selectedRadiusKm != null
+                            ? AppColors.primary.withValues(alpha: 0.18)
+                            : AppColors.surface.withValues(alpha: 0.95),
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(
+                          color: MapScreen.selectedRadiusKm != null
+                              ? AppColors.primary
+                              : AppColors.border,
+                          width: MapScreen.selectedRadiusKm != null ? 1.5 : 1.0,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: MapScreen.selectedRadiusKm != null
+                                ? AppColors.primary.withValues(alpha: 0.3)
+                                : Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.radar_rounded,
+                            size: 16,
+                            color: MapScreen.selectedRadiusKm != null
+                                ? AppColors.primary
+                                : AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            Supabase.instance.client.auth.currentSession == null
+                                ? '1 km (Kayıtsız)'
+                                : (!AuthService.isPremiumMock
+                                    ? '1 km (Kısıtlı)'
+                                    : (MapScreen.selectedRadiusKm == null
+                                        ? 'Sınırsız'
+                                        : '${MapScreen.selectedRadiusKm!.toStringAsFixed(0)} km')),
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: MapScreen.selectedRadiusKm != null
+                                  ? AppColors.primary
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.swap_horiz_rounded,
+                            size: 14,
+                            color: MapScreen.selectedRadiusKm != null
+                                ? AppColors.primary
+                                : AppColors.textHint,
+                          ),
+                        ],
+                      ),
                     ),
-                ],
-              ),
-              child: Center(
-                child: Text(
-                  point.category.emoji,
-                  style: TextStyle(fontSize: isSponsored ? 22 : 18),
+                  ),
                 ),
-              ),
-            ),
-            Container(width: isSponsored ? 3 : 2, height: isSponsored ? 12 : 10, color: pinColor),
-          ],
-        ),
-        if (isSponsored)
-          Positioned(
-            top: -6,
-            right: -4,
-            child: Container(
-              padding: const EdgeInsets.all(2),
-              decoration: const BoxDecoration(
-                color: Color(0xFF1A1A2E),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0xFFFFD700),
-                    blurRadius: 6,
-                  )
-                ],
-              ),
-              child: const Text('👑', style: TextStyle(fontSize: 12)),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildNavTargetMarker() {
-    return Column(
-      children: [
-        Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: const Color(0xFF2196F3),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 3),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF2196F3).withValues(alpha: 0.6),
-                blurRadius: 16,
-                spreadRadius: 4,
-              ),
-            ],
-          ),
-          child: const Center(
-            child: Icon(Icons.flag_rounded, color: Colors.white, size: 22),
-          ),
-        ),
-        Container(width: 2, height: 12, color: const Color(0xFF2196F3)),
-      ],
-    );
-  }
-
-  Widget _buildUserLocationMarker() {
-    return AnimatedBuilder(
-      animation: _pulseAnimation,
-      builder: (ctx, child) => Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: 50 * _pulseAnimation.value,
-            height: 50 * _pulseAnimation.value,
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-          ),
-          Container(
-            width: 20,
-            height: 20,
-            decoration: BoxDecoration(
-              color: AppColors.primary,
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primary.withValues(alpha: 0.6),
-                  blurRadius: 8,
+                const SizedBox(width: 8),
+                // + Nöbetçi butonu
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _pharmacyFilterActive = !_pharmacyFilterActive;
+                      _showPharmacies = _pharmacyFilterActive;
+                      if (_pharmacyFilterActive) _activeFilter = null;
+                    });
+                    _applyFilters();
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    height: 44,
+                    padding: const EdgeInsets.symmetric(horizontal: 13),
+                    decoration: BoxDecoration(
+                      color: _pharmacyFilterActive
+                          ? const Color(0xFF2E7D32)
+                          : const Color(0xFF4CAF50).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: const Color(0xFF4CAF50), width: 1.5),
+                      boxShadow: [
+                        if (_pharmacyFilterActive)
+                          const BoxShadow(
+                            color: Color(0x664CAF50),
+                            blurRadius: 10,
+                            offset: Offset(0, 3),
+                          ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.add,
+                          color: _pharmacyFilterActive ? Colors.white : const Color(0xFF4CAF50),
+                          size: 15,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Nöbetçi',
+                          style: TextStyle(
+                            color: _pharmacyFilterActive ? Colors.white : const Color(0xFF4CAF50),
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
+            const SizedBox(height: 10),
+            // ── Yatay Kaydırılabilir Kategori Chips ──
+            _buildFilterChipsRow(),
+            if (_weatherData != null) ...[
+              const SizedBox(height: 8),
+              WeatherCardWidget(
+                weather: _weatherData!,
+                locationText: _weatherLocationText,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFilterChipsRow() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        children: [
+          // Tümü
+          _buildFilterChip(
+            label: 'Tümü',
+            count: _allPoints.length,
+            isActive: _activeFilter == null && !_pharmacyFilterActive && !_filterOnlyPetFriendly,
+            color: AppColors.primary,
+            onTap: () {
+              setState(() {
+                _activeFilter = null;
+                _pharmacyFilterActive = false;
+                _showPharmacies = false;
+                _filterOnlyPetFriendly = false;
+              });
+              _applyFilters();
+            },
           ),
+          const SizedBox(width: 8),
+          // Pati Dostu
+          _buildFilterChip(
+            label: 'Pati Dostu',
+            emoji: '🐾',
+            isActive: _filterOnlyPetFriendly,
+            color: const Color(0xFFFF9800),
+            onTap: () {
+              final isPremium = AuthService.isPremiumMock;
+              if (!isPremium) {
+                showModalBottomSheet<bool>(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (_) => const PremiumPaywallSheet(),
+                );
+                return;
+              }
+              setState(() => _filterOnlyPetFriendly = !_filterOnlyPetFriendly);
+              _applyFilters();
+            },
+          ),
+          const SizedBox(width: 8),
+          // Tüm PointCategory değerleri
+          for (final cat in PointCategory.values) ...[
+            _buildFilterChip(
+              label: cat.labelTR,
+              emoji: cat.emoji,
+              isActive: _activeFilter == cat && !_pharmacyFilterActive,
+              color: Color(cat.colorValue),
+              onTap: () {
+                setState(() {
+                  _activeFilter = _activeFilter == cat ? null : cat;
+                  _pharmacyFilterActive = false;
+                  _showPharmacies = false;
+                });
+                _applyFilters();
+              },
+            ),
+            const SizedBox(width: 8),
+          ],
         ],
       ),
     );
   }
 
-  Widget _buildTopBar() {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 70, 0),
-        child: Container(
-          height: 52,
-          decoration: BoxDecoration(
-            color: AppColors.surface.withValues(alpha: 0.97),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.border),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 16,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              const SizedBox(width: 16),
-              const Icon(Icons.explore, color: AppColors.primary, size: 22),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Keşif',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-              ),
-              // Mesafe seçici döngüsü
-              GestureDetector(
-                onTap: () {
-                  final isLoggedIn = Supabase.instance.client.auth.currentSession != null;
-                  if (!isLoggedIn) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Text('🔒 Kayıtsız kullanıcılar 1 km ile sınırlıdır. Genişletmek için Giriş Yapın!'),
-                        backgroundColor: AppColors.primary,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                    );
-                    return;
-                  }
-
-                  // Giriş yapmışsa ama Premium değilse
-                  final isPremium = AuthService.isPremiumMock;
-                  if (!isPremium) {
-                    showModalBottomSheet<bool>(
-                      context: context,
-                      isScrollControlled: true,
-                      backgroundColor: Colors.transparent,
-                      builder: (_) => const PremiumPaywallSheet(),
-                    ).then((bought) {
-                      if (bought == true && mounted) {
-                        setState(() {
-                          MapScreen.selectedRadiusKm = 5.0; // Satın alımdan sonra 5 km'ye çek
-                        });
-                        _applyFilters();
-                      }
-                    });
-                    return;
-                  }
-
-                  setState(() {
-                    if (MapScreen.selectedRadiusKm == null) {
-                      MapScreen.selectedRadiusKm = 1.0;
-                    } else if (MapScreen.selectedRadiusKm == 1.0) {
-                      MapScreen.selectedRadiusKm = 5.0;
-                    } else if (MapScreen.selectedRadiusKm == 5.0) {
-                      MapScreen.selectedRadiusKm = 10.0;
-                    } else {
-                      MapScreen.selectedRadiusKm = null;
-                    }
-                  });
-                  _applyFilters();
-                },
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: (Supabase.instance.client.auth.currentSession == null || !AuthService.isPremiumMock || MapScreen.selectedRadiusKm != null)
-                        ? AppColors.primary.withValues(alpha: 0.2)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: (Supabase.instance.client.auth.currentSession == null || !AuthService.isPremiumMock || MapScreen.selectedRadiusKm != null) ? AppColors.primary : AppColors.border,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.radar,
-                        size: 14,
-                        color: (Supabase.instance.client.auth.currentSession == null || !AuthService.isPremiumMock || MapScreen.selectedRadiusKm != null)
-                            ? AppColors.primary
-                            : AppColors.textSecondary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        Supabase.instance.client.auth.currentSession == null
-                            ? '1 km'
-                            : (!AuthService.isPremiumMock
-                                ? '1 km (Kısıtlı)'
-                                : (MapScreen.selectedRadiusKm == null
-                                    ? 'Sınırsız'
-                                    : '${MapScreen.selectedRadiusKm!.toStringAsFixed(0)} km')),
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: (Supabase.instance.client.auth.currentSession == null || !AuthService.isPremiumMock || MapScreen.selectedRadiusKm != null)
-                              ? AppColors.primary
-                              : AppColors.textSecondary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Text(
-                '${_filteredPoints.length}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-              ),
-              const SizedBox(width: 12),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCategorySidebar() {
-    return Positioned(
-      top: 80,
-      right: 12,
-      bottom: 120,
-      child: SafeArea(
-        child: Container(
-          width: 50,
-          decoration: BoxDecoration(
-            color: AppColors.surface.withValues(alpha: 0.88),
-            borderRadius: BorderRadius.circular(25),
-            border: Border.all(color: AppColors.primary.withValues(alpha: 0.3), width: 1.5),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.4),
-                blurRadius: 16,
-                offset: const Offset(0, 4),
-              ),
-              BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.15),
-                blurRadius: 10,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(25),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(height: 6),
-                    // Tam Ekran Genişlet Butonu
-                    Tooltip(
-                      message: 'Tüm Kategoriler (Genişlet)',
-                      child: GestureDetector(
-                        onTap: () => _showCategoryGlassOverlay(),
-                        child: Container(
-                          width: 38,
-                          height: 38,
-                          margin: const EdgeInsets.symmetric(vertical: 2),
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [AppColors.primary, Color(0xFFB71C4B)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.primary.withValues(alpha: 0.5),
-                                blurRadius: 8,
-                              ),
-                            ],
-                          ),
-                          child: const Center(
-                            child: Icon(
-                              Icons.grid_view_rounded,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    _divider(),
-                    // Eczaneler
-                    _sidebarPharmacyButton(),
-                    _divider(),
-                    // Tümü
-                    _sidebarButton(null, '🗺️', 'Tümü'),
-                    _divider(),
-                    ...PointCategory.values.map((cat) => _sidebarButton(cat, cat.emoji, cat.labelTR)),
-                    _divider(),
-                    _sidebarPetButton(),
-                    const SizedBox(height: 6),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _sidebarPharmacyButton() {
-    return Tooltip(
-      message: 'Nöbetçi Eczaneler',
-      preferBelow: false,
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _pharmacyFilterActive = !_pharmacyFilterActive;
-            _showPharmacies = _pharmacyFilterActive;
-            _activeFilter = null;
-          });
-          _applyFilters();
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          width: 38,
-          height: 38,
-          margin: const EdgeInsets.symmetric(vertical: 3),
-          decoration: BoxDecoration(
-            color: _pharmacyFilterActive
-                ? const Color(0xFFE53935).withValues(alpha: 0.3)
-                : Colors.transparent,
-            shape: BoxShape.circle,
-            border: _pharmacyFilterActive
-                ? Border.all(color: const Color(0xFFE53935), width: 1.5)
-                : null,
-          ),
-          child: const Center(
-            child: Text(
-              '🏥',
-              style: TextStyle(fontSize: 18),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _sidebarPetButton() {
-    return Tooltip(
-      message: 'Evcil Hayvan Dostu (Premium)',
-      preferBelow: false,
-      child: GestureDetector(
-        onTap: () {
-          final isPremium = AuthService.isPremiumMock;
-          if (!isPremium) {
-            showModalBottomSheet<bool>(
-              context: context,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              builder: (_) => const PremiumPaywallSheet(),
-            );
-          } else {
-            setState(() {
-              _filterOnlyPetFriendly = !_filterOnlyPetFriendly;
-            });
-            _applyFilters();
-          }
-        },
-        child: Container(
-          width: 38,
-          height: 38,
-          margin: const EdgeInsets.symmetric(vertical: 3),
-          decoration: BoxDecoration(
-            color: _filterOnlyPetFriendly
-                ? AppColors.primary
-                : Colors.transparent,
-            shape: BoxShape.circle,
-            border: _filterOnlyPetFriendly
-                ? Border.all(color: Colors.white, width: 1.5)
-                : null,
-          ),
-          child: const Center(
-            child: Text(
-              '🐾',
-              style: TextStyle(fontSize: 18),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _sidebarButton(PointCategory? cat, String emoji, String label) {
-    final isActive = _activeFilter == cat && !_pharmacyFilterActive;
-    final color = cat != null ? Color(cat.colorValue) : AppColors.primary;
-    return Tooltip(
-      message: label,
-      preferBelow: false,
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _activeFilter = cat;
-            _pharmacyFilterActive = false;
-            _showPharmacies = false;
-          });
-          _applyFilters();
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          width: 38,
-          height: 38,
-          margin: const EdgeInsets.symmetric(vertical: 3),
-          decoration: BoxDecoration(
-            color: isActive ? color.withValues(alpha: 0.3) : Colors.transparent,
-            shape: BoxShape.circle,
-            border: isActive ? Border.all(color: color, width: 1.5) : null,
-          ),
-          child: Center(
-            child: Text(
-              emoji,
-              style: TextStyle(
-                fontSize: isActive ? 20 : 18,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _divider() {
-    return Container(
-      width: 28,
-      height: 1,
-      margin: const EdgeInsets.symmetric(vertical: 2),
-      color: AppColors.border.withValues(alpha: 0.6),
-    );
-  }
-
-  /// Ekranı Kaplayan Yarı Saydam (Glassmorphic) Kategori Paneli
-  void _showCategoryGlassOverlay() {
-    showGeneralDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'CategoryOverlay',
-      barrierColor: Colors.black.withValues(alpha: 0.5),
-      transitionDuration: const Duration(milliseconds: 280),
-      pageBuilder: (ctx, anim1, anim2) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-              child: Scaffold(
-                backgroundColor: AppColors.background.withValues(alpha: 0.8),
-                body: SafeArea(
-                  child: Column(
-                    children: [
-                      // Header
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-                        child: Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.2),
-                                shape: BoxShape.circle,
-                                border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
-                              ),
-                              child: const Icon(Icons.explore_rounded, color: AppColors.primary, size: 24),
-                            ),
-                            const SizedBox(width: 14),
-                            const Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Kategorileri Keşfet',
-                                    style: TextStyle(
-                                      color: AppColors.textPrimary,
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: -0.5,
-                                    ),
-                                  ),
-                                  SizedBox(height: 2),
-                                  Text(
-                                    'Haritada filtrelemek istediğiniz mekan kategorisini seçin',
-                                    style: TextStyle(
-                                      color: AppColors.textSecondary,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            GestureDetector(
-                              onTap: () => Navigator.pop(context),
-                              child: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: AppColors.surfaceElevated.withValues(alpha: 0.8),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: AppColors.border),
-                                ),
-                                child: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Divider(color: AppColors.divider, height: 1),
-                      const SizedBox(height: 12),
-
-                      // Grid Items
-                      Expanded(
-                        child: GridView(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          physics: const BouncingScrollPhysics(),
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            childAspectRatio: 1.45,
-                            crossAxisSpacing: 12,
-                            mainAxisSpacing: 12,
-                          ),
-                          children: [
-                            // 🗺️ Tüm Noktalar
-                            _buildGlassCategoryCard(
-                              title: 'Tüm Noktalar',
-                              subtitle: '${_allPoints.length} mekan',
-                              emoji: '🗺️',
-                              accentColor: AppColors.primary,
-                              isSelected: _activeFilter == null && !_pharmacyFilterActive,
-                              onTap: () {
-                                setState(() {
-                                  _activeFilter = null;
-                                  _pharmacyFilterActive = false;
-                                  _showPharmacies = false;
-                                });
-                                _applyFilters();
-                                Navigator.pop(context);
-                              },
-                            ),
-                            // 🏥 Nöbetçi Eczaneler
-                            _buildGlassCategoryCard(
-                              title: 'Nöbetçi Eczaneler',
-                              subtitle: '${_pharmacies.length} eczane',
-                              emoji: '🏥',
-                              accentColor: const Color(0xFFE53935),
-                              isSelected: _pharmacyFilterActive,
-                              onTap: () {
-                                setState(() {
-                                  _pharmacyFilterActive = !_pharmacyFilterActive;
-                                  _showPharmacies = _pharmacyFilterActive;
-                                  _activeFilter = null;
-                                });
-                                _applyFilters();
-                                Navigator.pop(context);
-                              },
-                            ),
-                            // Dinamik Kategoriler
-                            ...PointCategory.values.map((cat) {
-                              final catColor = Color(cat.colorValue);
-                              final isCatSelected = _activeFilter == cat && !_pharmacyFilterActive;
-                              final count = _allPoints.where((p) => p.category == cat).length;
-                              return _buildGlassCategoryCard(
-                                title: cat.labelTR,
-                                subtitle: '$count mekan',
-                                emoji: cat.emoji,
-                                accentColor: catColor,
-                                isSelected: isCatSelected,
-                                onTap: () {
-                                  setState(() {
-                                    _activeFilter = cat;
-                                    _pharmacyFilterActive = false;
-                                    _showPharmacies = false;
-                                  });
-                                  _applyFilters();
-                                  Navigator.pop(context);
-                                },
-                              );
-                            }),
-                            // 🐾 Evcil Hayvan Dostu
-                            _buildGlassCategoryCard(
-                              title: 'Evcil Hayvan Dostu',
-                              subtitle: 'Premium Filtre',
-                              emoji: '🐾',
-                              accentColor: const Color(0xFFFFB347),
-                              isSelected: _filterOnlyPetFriendly,
-                              onTap: () {
-                                Navigator.pop(context);
-                                final isPremium = AuthService.isPremiumMock;
-                                if (!isPremium) {
-                                  showModalBottomSheet<bool>(
-                                    context: context,
-                                    isScrollControlled: true,
-                                    backgroundColor: Colors.transparent,
-                                    builder: (_) => const PremiumPaywallSheet(),
-                                  );
-                                } else {
-                                  setState(() {
-                                    _filterOnlyPetFriendly = !_filterOnlyPetFriendly;
-                                  });
-                                  _applyFilters();
-                                }
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
-      transitionBuilder: (ctx, anim1, anim2, child) {
-        return FadeTransition(
-          opacity: anim1,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.92, end: 1.0).animate(
-              CurvedAnimation(parent: anim1, curve: Curves.easeOutCubic),
-            ),
-            child: child,
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildGlassCategoryCard({
-    required String title,
-    required String subtitle,
-    required String emoji,
-    required Color accentColor,
-    required bool isSelected,
+  Widget _buildFilterChip({
+    required String label,
+    String? emoji,
+    int? count,
+    required bool isActive,
+    required Color color,
     required VoidCallback onTap,
   }) {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
         decoration: BoxDecoration(
-          color: isSelected
-              ? accentColor.withValues(alpha: 0.25)
-              : AppColors.card.withValues(alpha: 0.55),
+          color: isActive ? color : AppColors.surface.withValues(alpha: 0.92),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? accentColor : AppColors.border.withValues(alpha: 0.6),
-            width: isSelected ? 2 : 1,
+            color: isActive ? color : AppColors.border,
+            width: 1.2,
           ),
           boxShadow: [
-            if (isSelected)
-              BoxShadow(
-                color: accentColor.withValues(alpha: 0.35),
-                blurRadius: 14,
-                spreadRadius: 1,
-              )
-            else
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
+            BoxShadow(
+              color: isActive
+                  ? color.withValues(alpha: 0.4)
+                  : Colors.black.withValues(alpha: 0.2),
+              blurRadius: isActive ? 10 : 4,
+              offset: const Offset(0, 2),
+            ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  emoji,
-                  style: const TextStyle(fontSize: 32),
-                ),
-                if (isSelected)
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: accentColor,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.check, color: Colors.white, size: 12),
-                  ),
-              ],
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: AppColors.textSecondary.withValues(alpha: 0.8),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
+            if (emoji != null) ...[
+              Text(emoji, style: const TextStyle(fontSize: 13)),
+              const SizedBox(width: 5),
+            ],
+            Text(
+              count != null ? '$label ($count)' : label,
+              style: TextStyle(
+                color: isActive ? Colors.white : AppColors.textSecondary,
+                fontSize: 12,
+                fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
+              ),
             ),
           ],
         ),
       ),
     );
   }
+
+
 
   Widget _buildBottomControls() {
     return Positioned(
@@ -1697,7 +1209,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
       bottom: 100,
       child: Column(
         children: [
-          _mapButton(
+          MapControlButton(
             icon: Icons.add_location_alt_outlined,
             tooltip: 'Keşif Noktası Ekle',
             onTap: () {
@@ -1722,7 +1234,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
             },
           ),
           const SizedBox(height: 8),
-          _mapButton(
+          MapControlButton(
             icon: _useSatelliteMap ? Icons.map_outlined : Icons.layers_outlined,
             tooltip: 'Harita Görünümü (Premium)',
             onTap: () {
@@ -1740,148 +1252,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
             },
           ),
           const SizedBox(height: 8),
-          _mapButton(
+          MapControlButton(
             icon: Icons.my_location,
             tooltip: 'Konumuma Git',
             onTap: _centerOnUser,
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _mapButton({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.border),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
-              blurRadius: 8,
-            ),
-          ],
-        ),
-        child: Icon(icon, color: AppColors.primary, size: 22),
-      ),
-    );
-  }
-
-  Widget _buildNavigationBanner() {
-    return Positioned(
-      bottom: 100,
-      left: 16,
-      right: 72,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1565C0),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF2196F3).withValues(alpha: 0.4),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.navigation_rounded, color: Colors.white, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Navigasyon aktif',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13),
-                  ),
-                  Text(
-                    _navigationTarget?.title ?? '',
-                    style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.8),
-                        fontSize: 11),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            GestureDetector(
-              onTap: _clearNavigation,
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.close, color: Colors.white, size: 16),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRouteLoadingIndicator() {
-    return Positioned(
-      bottom: 160,
-      left: 0,
-      right: 0,
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                    color: Color(0xFF2196F3), strokeWidth: 2),
-              ),
-              SizedBox(width: 10),
-              Text('Rota hesaplanıyor...',
-                  style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLoadingOverlay() {
-    return Container(
-      color: AppColors.background.withValues(alpha: 0.8),
-      child: const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(color: AppColors.primary),
-            SizedBox(height: 16),
-            Text('Konum alınıyor...',
-                style: TextStyle(color: AppColors.textSecondary)),
-          ],
-        ),
       ),
     );
   }

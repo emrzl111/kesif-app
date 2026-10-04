@@ -94,7 +94,7 @@ class EventDetailSheet extends StatelessWidget {
 
                   const SizedBox(height: 20),
 
-                  // Rozetler (Kategori & Ücretsiz)
+                  // Rozetler (Kategori & Fiyat)
                   Row(
                     children: [
                       Container(
@@ -117,14 +117,24 @@ class EventDetailSheet extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
+                          color: event.isFree
+                              ? const Color(0xFF4CAF50).withValues(alpha: 0.15)
+                              : const Color(0xFFFFB347).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFF4CAF50).withValues(alpha: 0.3)),
+                          border: Border.all(
+                            color: event.isFree
+                                ? const Color(0xFF4CAF50).withValues(alpha: 0.3)
+                                : const Color(0xFFFFB347).withValues(alpha: 0.3),
+                          ),
                         ),
-                        child: const Text(
-                          'ÜCRETSİZ GİRİŞ',
+                        child: Text(
+                          event.isFree
+                              ? 'ÜCRETSİZ GİRİŞ'
+                              : '₺${event.price!.toStringAsFixed(0)} GİRİŞ',
                           style: TextStyle(
-                            color: Color(0xFF4CAF50),
+                            color: event.isFree
+                                ? const Color(0xFF4CAF50)
+                                : const Color(0xFFFFB347),
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
                           ),

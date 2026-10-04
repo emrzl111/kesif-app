@@ -382,7 +382,9 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
                   const SizedBox(height: 8),
                   Text(
                     _showEventsTab
-                        ? '${_currentCity ?? "Şehriniz"} için 10 günlük etkinlik planı'
+                        ? (_currentDistrict != null
+                            ? '📍 Bugün · $_currentDistrict etkinlikleri'
+                            : '📍 Bugün · ${_currentCity ?? "Şehriniz"} etkinlikleri')
                         : (_activeFilter != null
                             ? '${_activeFilter!.emoji} ${_activeFilter!.labelTR} kategorisinde'
                             : 'Tüm kategorilerde keşif noktaları'),
@@ -554,11 +556,31 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
   }
 
   Widget _buildEventsVerticalList() {
-    final nowCutoff = DateTime.now().subtract(const Duration(hours: 6));
-    final limitDate = DateTime.now().add(const Duration(days: 14));
-    final activeEvents = _events.where((e) => e.startDate.isAfter(nowCutoff) && e.startDate.isBefore(limitDate)).toList();
-    if (activeEvents.isEmpty && _events.isNotEmpty) {
-      activeEvents.addAll(_events);
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+
+    // Sadece bugünkü etkinlikler
+    var todayEvents = _events.where((e) {
+      final start = e.startDate.toLocal();
+      final end = e.endDate?.toLocal();
+      // Bugün başlayan VEYA bugün devam eden etkinlikler
+      final startsToday = start.isAfter(todayStart) && start.isBefore(todayEnd);
+      final ongoingToday = end != null && start.isBefore(todayEnd) && end.isAfter(todayStart);
+      return startsToday || ongoingToday;
+    }).toList();
+
+    // Semte göre filtrele (district varsa)
+    if (_currentDistrict != null && _currentDistrict!.isNotEmpty) {
+      final districtFiltered = todayEvents.where((e) {
+        if (e.district == null) return false;
+        return e.district!.toLowerCase().contains(_currentDistrict!.toLowerCase()) ||
+            _currentDistrict!.toLowerCase().contains(e.district!.toLowerCase());
+      }).toList();
+      // Semt eşleşmesi varsa onu kullan, yoksa tüm bugünkü etkinlikleri göster
+      if (districtFiltered.isNotEmpty) {
+        todayEvents = districtFiltered;
+      }
     }
 
     if (_eventsLoading) {
@@ -569,7 +591,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
       );
     }
 
-    if (activeEvents.isEmpty) {
+    if (todayEvents.isEmpty) {
       return SliverFillRemaining(
         child: Center(
           child: Padding(
@@ -580,9 +602,9 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
                 const Text('📅', style: TextStyle(fontSize: 48)),
                 const SizedBox(height: 16),
                 Text(
-                  _currentCity != null
-                      ? '$_currentCity için 10 gün içinde gerçekleşecek bir sosyal etkinlik bulunamadı.'
-                      : 'Şehrinizde yaklaşan etkinlik bulunamadı.',
+                  _currentDistrict != null
+                      ? '$_currentDistrict\'de bugün gerçekleşecek etkinlik bulunamadı.'
+                      : 'Bugün ${_currentCity ?? "şehrinizde"} etkinlik bulunamadı.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: AppColors.textSecondary, fontSize: 15),
                 ),
@@ -597,8 +619,8 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate(
-          (ctx, i) => _buildVerticalEventCard(activeEvents[i]),
-          childCount: activeEvents.length,
+          (ctx, i) => _buildVerticalEventCard(todayEvents[i]),
+          childCount: todayEvents.length,
         ),
       ),
     );
@@ -610,192 +632,241 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
     final icon = style['icon'] as String;
     final label = style['label'] as String;
 
-    String dateStr = '';
-    try {
-      dateStr = DateFormat('d MMMM yyyy, HH:mm', 'tr').format(event.startDate.toLocal());
-    } catch (_) {
-      dateStr = DateFormat('d MMMM').format(event.startDate.toLocal());
-    }
+    final now = DateTime.now();
+    final localStart = event.startDate.toLocal();
+    final localEnd = event.endDate?.toLocal();
+
+    final isToday = localStart.day == now.day &&
+        localStart.month == now.month &&
+        localStart.year == now.year;
+
+    final timeStr = isToday
+        ? 'Bugün · ${localStart.hour.toString().padLeft(2, '0')}:${localStart.minute.toString().padLeft(2, '0')}'
+            '${localEnd != null ? ' – ${localEnd.hour.toString().padLeft(2, '0')}:${localEnd.minute.toString().padLeft(2, '0')}' : ''}'
+        : DateFormat('d MMM, HH:mm', 'tr').format(localStart);
 
     String? distanceStr;
     if (_userPosition != null && event.latitude != null && event.longitude != null) {
       final dist = Geolocator.distanceBetween(
-        _userPosition!.latitude,
-        _userPosition!.longitude,
-        event.latitude!,
-        event.longitude!,
+        _userPosition!.latitude, _userPosition!.longitude,
+        event.latitude!, event.longitude!,
       );
-      if (dist >= 1000) {
-        distanceStr = '${(dist / 1000).toStringAsFixed(1)} km uzaklıkta';
-      } else {
-        distanceStr = '${dist.toStringAsFixed(0)} m uzaklıkta';
-      }
+      distanceStr = dist >= 1000
+          ? '${(dist / 1000).toStringAsFixed(1)} km'
+          : '${dist.toStringAsFixed(0)} m';
     }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.border.withValues(alpha: 0.6)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+    final priceLabel = event.isFree
+        ? 'Ücretsiz'
+        : '₺${event.price!.toStringAsFixed(0)}';
+    final priceColor = event.isFree ? const Color(0xFF4CAF50) : const Color(0xFFFFB347);
+
+    return GestureDetector(
+      onTap: () {
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => EventDetailSheet(
+            event: event,
+            userLocation: _userPosition != null
+                ? LatLng(_userPosition!.latitude, _userPosition!.longitude)
+                : null,
           ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: AppColors.card,
           borderRadius: BorderRadius.circular(20),
-          onTap: () {
-            showModalBottomSheet(
-              context: context,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              builder: (_) => EventDetailSheet(
-                event: event,
-                userLocation: _userPosition != null ? LatLng(_userPosition!.latitude, _userPosition!.longitude) : null,
-              ),
-            );
-          },
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (event.imageUrl != null)
-                ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                  child: Image.network(
-                    event.imageUrl!,
-                    height: 150,
+          border: Border.all(color: AppColors.border.withValues(alpha: 0.6)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.2),
+              blurRadius: 14,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Üst: Resim + Overlay badgeleri ─────────────
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              child: Stack(
+                children: [
+                  // Arkaplan resim
+                  SizedBox(
+                    height: 190,
                     width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => _eventImagePlaceholder(color, icon),
+                    child: event.imageUrl != null
+                        ? Image.network(
+                            event.imageUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => _eventImagePlaceholder(color, icon),
+                          )
+                        : _eventImagePlaceholder(color, icon),
                   ),
-                )
-              else
-                ClipRRect(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                  child: _eventImagePlaceholder(color, icon),
-                ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: color.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: color.withValues(alpha: 0.3)),
-                          ),
-                          child: Text(
-                            '$icon $label',
-                            style: TextStyle(
-                              color: color,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFF4CAF50).withValues(alpha: 0.3)),
-                          ),
-                          child: const Text(
-                            'ÜCRETSİZ',
-                            style: TextStyle(
-                              color: Color(0xFF4CAF50),
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        const Spacer(),
-                        if (event.city != null)
-                          Text(
-                            event.city!,
-                            style: const TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      event.title,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (event.description != null && event.description!.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        event.description!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 13,
+                  // Üst gradyan overlay (badgelerin okunması için)
+                  Positioned(
+                    top: 0, left: 0, right: 0,
+                    child: Container(
+                      height: 72,
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Color(0xCC000000), Colors.transparent],
                         ),
                       ),
-                    ],
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        const Icon(Icons.schedule_rounded, size: 16, color: AppColors.textSecondary),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            dateStr,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
                     ),
-                    if (event.district != null || event.locationName != null || distanceStr != null) ...[
-                      const SizedBox(height: 8),
-                      Row(
+                  ),
+                  // Alt gradyan overlay (saat için)
+                  Positioned(
+                    bottom: 0, left: 0, right: 0,
+                    child: Container(
+                      height: 72,
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [Color(0xCC000000), Colors.transparent],
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Sol üst: Kategori badge
+                  Positioned(
+                    top: 12, left: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.location_on_rounded, size: 16, color: AppColors.textSecondary),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              distanceStr != null
-                                  ? '${event.locationName ?? event.district ?? ""} ($distanceStr)'
-                                  : (event.locationName ?? event.district ?? ''),
-                              style: const TextStyle(
-                                color: AppColors.textSecondary,
-                                fontSize: 13,
-                              ),
-                              overflow: TextOverflow.ellipsis,
+                          Text(icon, style: const TextStyle(fontSize: 13)),
+                          const SizedBox(width: 5),
+                          Text(
+                            label,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                         ],
                       ),
-                    ],
-                  ],
-                ),
+                    ),
+                  ),
+                  // Sağ üst: Fiyat badge
+                  Positioned(
+                    top: 12, right: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: priceColor.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        priceLabel,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Sol alt: Saat
+                  Positioned(
+                    bottom: 12, left: 12,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.schedule_rounded, size: 14, color: Colors.white),
+                        const SizedBox(width: 5),
+                        Text(
+                          timeStr,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            // ── Alt: Başlık, Konum, Açıklama ───────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    event.title,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      const Icon(Icons.location_on_rounded,
+                          size: 14, color: AppColors.textSecondary),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          [
+                            if (event.locationName != null) event.locationName!,
+                            if (event.district != null) event.district!,
+                          ].join(' · '),
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (distanceStr != null) ...[
+                        const SizedBox(width: 6),
+                        Text(
+                          distanceStr,
+                          style: TextStyle(
+                            color: AppColors.textSecondary.withValues(alpha: 0.7),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  if (event.description != null && event.description!.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      event.description!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -803,15 +874,20 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
 
   Widget _eventImagePlaceholder(Color color, String icon) {
     return Container(
-      height: 150,
+      height: 190,
       width: double.infinity,
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [color.withValues(alpha: 0.8), color.withValues(alpha: 0.4)],
+          colors: [
+            color.withValues(alpha: 0.85),
+            color.withValues(alpha: 0.45),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
       ),
       child: Center(
-        child: Text(icon, style: const TextStyle(fontSize: 48)),
+        child: Text(icon, style: const TextStyle(fontSize: 56)),
       ),
     );
   }
