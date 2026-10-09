@@ -249,8 +249,6 @@ class _ProfileScreenState extends State<ProfileScreen>
                             letterSpacing: -0.5,
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        _buildUserBadge(),
                       ],
                     ),
                   ],
@@ -281,38 +279,6 @@ class _ProfileScreenState extends State<ProfileScreen>
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildUserBadge() {
-    final isPremium = AuthService.isPremiumMock;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isPremium
-              ? [const Color(0xFFFFD700), const Color(0xFFFFA500)]
-              : [const Color(0xFF2196F3), const Color(0xFF1976D2)],
-        ),
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: [
-          BoxShadow(
-            color: (isPremium ? const Color(0xFFFFD700) : const Color(0xFF2196F3))
-                .withValues(alpha: 0.25),
-            blurRadius: 6,
-            offset: const Offset(0, 1.5),
-          ),
-        ],
-      ),
-      child: Text(
-        isPremium ? '💎 PREMIUM' : '👤 STANDART',
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 9,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 0.5,
-        ),
       ),
     );
   }
