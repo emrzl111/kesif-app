@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app/theme.dart';
 import 'app/main_shell.dart';
 import 'config/app_config.dart';
+import 'config/firebase_options.dart';
 import 'core/app_logger.dart';
 import 'features/auth/login_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
@@ -18,7 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Uygulama arka plandayken / kapalıyken gelen FCM mesajlarını işler
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.showBackgroundNotification(message);
 }
 
@@ -42,7 +43,7 @@ Future<void> main() async {
   ]);
 
   // Firebase başlat
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Arka plan bildirim handler'ını kaydet
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
