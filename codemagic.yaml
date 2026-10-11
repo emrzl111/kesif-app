@@ -12,7 +12,7 @@ workflows:
     environment:
       groups:
         - supabase
-      flutter: stable
+      flutter: 3.44.5
       xcode: latest
       cocoapods: default
     scripts:
@@ -40,7 +40,7 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.kesif.kesifApp
-      flutter: stable
+      flutter: 3.44.5
       xcode: latest
       cocoapods: default
     scripts:
