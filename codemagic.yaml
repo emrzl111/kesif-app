@@ -1,0 +1,42 @@
+# Codemagic CI/CD - Keşif iOS derlemesi
+# Gerekli Codemagic ayarları:
+#   1. Teams > Integrations > App Store Connect: "Kesif ASC Key" adında API anahtarı
+#   2. Environment variables > "supabase" grubu: SUPABASE_URL, SUPABASE_ANON_KEY (Secure işaretli)
+
+workflows:
+  ios-release:
+    name: iOS App Store
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: Kesif ASC Key
+    environment:
+      groups:
+        - supabase
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.kesif.kesifApp
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Flutter paketleri
+        script: flutter pub get
+      - name: CocoaPods kurulumu
+        script: cd ios && pod install --repo-update
+      - name: İmzalama profillerini uygula
+        script: xcode-project use-profiles
+      - name: IPA derle
+        script: |
+          flutter build ipa --release \
+            --build-number=$((100 + BUILD_NUMBER)) \
+            --dart-define=SUPABASE_URL=$SUPABASE_URL \
+            --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
