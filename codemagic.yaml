@@ -20,13 +20,13 @@ workflows:
         script: flutter pub get
       - name: CocoaPods kurulumu
         script: cd ios && pod install --repo-update
-      - name: iOS derle (imzasız)
+      - name: iOS derle (simulator, imza gerektirmez)
         script: |
-          flutter build ios --release --no-codesign \
+          flutter build ios --simulator --debug \
             --dart-define=SUPABASE_URL=$SUPABASE_URL \
             --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
     artifacts:
-      - build/ios/iphoneos/*.app
+      - build/ios/iphonesimulator/*.app
 
   ios-release:
     name: iOS App Store
