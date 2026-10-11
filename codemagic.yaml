@@ -4,6 +4,30 @@
 #   2. Environment variables > "supabase" grubu: SUPABASE_URL, SUPABASE_ANON_KEY (Secure işaretli)
 
 workflows:
+  # Apple hesabı gerektirmez: sadece kodun iOS'ta derlendiğini doğrular
+  ios-test:
+    name: iOS Test (imzasız)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      groups:
+        - supabase
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Flutter paketleri
+        script: flutter pub get
+      - name: CocoaPods kurulumu
+        script: cd ios && pod install --repo-update
+      - name: iOS derle (imzasız)
+        script: |
+          flutter build ios --release --no-codesign \
+            --dart-define=SUPABASE_URL=$SUPABASE_URL \
+            --dart-define=SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
+    artifacts:
+      - build/ios/iphoneos/*.app
+
   ios-release:
     name: iOS App Store
     max_build_duration: 60
