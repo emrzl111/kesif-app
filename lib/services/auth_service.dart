@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AuthService {
@@ -65,6 +69,48 @@ class AuthService {
       OAuthProvider.google,
       redirectTo: 'com.kesif.app://login-callback',
     );
+  }
+
+  /// iOS: Apple ile giriş (App Store Kural 4.8).
+  /// Apple'dan gelen kimlik belirteci Supabase oturumuna çevrilir.
+  /// Kullanıcı pencereyi kapatırsa [SignInWithAppleAuthorizationException] (canceled) fırlatılır.
+  Future<AuthResponse> signInWithApple() async {
+    final rawNonce = _supabase.auth.generateRawNonce();
+    final hashedNonce = sha256.convert(utf8.encode(rawNonce)).toString();
+
+    final credential = await SignInWithApple.getAppleIDCredential(
+      scopes: [
+        AppleIDAuthorizationScopes.email,
+        AppleIDAuthorizationScopes.fullName,
+      ],
+      nonce: hashedNonce,
+    );
+
+    final idToken = credential.identityToken;
+    if (idToken == null) {
+      throw const AuthException('Apple kimlik bilgisi alınamadı.');
+    }
+
+    final res = await _supabase.auth.signInWithIdToken(
+      provider: OAuthProvider.apple,
+      idToken: idToken,
+      nonce: rawNonce,
+    );
+
+    // Apple adı yalnızca ilk girişte verir; varsa meta veriye kaydet
+    // (kullanıcı adı önerisi için kullanılır).
+    final given = credential.givenName;
+    final family = credential.familyName;
+    if (given != null && given.trim().isNotEmpty) {
+      final fullName = [given, family]
+          .where((s) => s != null && s.trim().isNotEmpty)
+          .join(' ');
+      try {
+        await _supabase.auth.updateUser(UserAttributes(data: {'full_name': fullName}));
+      } catch (_) {}
+    }
+
+    return res;
   }
 
   Future<void> signOut() async {

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../app/theme.dart';
 import '../../services/auth_service.dart';
 import 'register_screen.dart';
+import 'widgets/apple_sign_in_button.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -315,6 +316,15 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                       ),
                     ),
+                    if (AppleSignInButton.isSupported) ...[
+                      const SizedBox(height: 12),
+                      AppleSignInButton(
+                        disabled: _isLoading,
+                        onLoadingChanged: (v) {
+                          if (mounted) setState(() => _isLoading = v);
+                        },
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     // Kayıt ol linki
                     Center(

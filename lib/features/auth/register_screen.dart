@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../app/theme.dart';
 import '../../services/auth_service.dart';
+import 'widgets/apple_sign_in_button.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -330,6 +331,15 @@ class _RegisterScreenState extends State<RegisterScreen>
                       ),
                     ),
                   ),
+                  if (AppleSignInButton.isSupported) ...[
+                    const SizedBox(height: 12),
+                    AppleSignInButton(
+                      disabled: _isLoading,
+                      onLoadingChanged: (v) {
+                        if (mounted) setState(() => _isLoading = v);
+                      },
+                    ),
+                  ],
                   if (_successMessage != null) ...[
                     const SizedBox(height: 16),
                     SizedBox(
