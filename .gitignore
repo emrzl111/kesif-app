@@ -53,3 +53,6 @@ app.*.map.json
 # launch.json yerel olarak saklanır, Git'e GİTMEZ
 .vscode/launch.json
 
+
+# Codemagic imzalama ozel anahtari (ASLA commit edilmez)
+scratch/codemagic_private_key*

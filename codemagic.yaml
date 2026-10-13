@@ -37,9 +37,9 @@ workflows:
     environment:
       groups:
         - supabase
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.kesif.kesifApp
+        - apple
+      vars:
+        BUNDLE_ID: com.kesif.kesifApp
       flutter: 3.44.5
       xcode: latest
       cocoapods: default
@@ -48,6 +48,15 @@ workflows:
         script: flutter pub get
       - name: CocoaPods kurulumu
         script: cd ios && pod install --repo-update
+      - name: Keychain hazırla
+        script: keychain initialize
+      - name: İmzalama dosyalarını al / oluştur
+        script: |
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+      - name: Sertifikaları ekle
+        script: keychain add-certificates
       - name: İmzalama profillerini uygula
         script: xcode-project use-profiles
       - name: IPA derle
