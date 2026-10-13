@@ -19,8 +19,20 @@ class NotificationService {
   static Future<void> initialize() async {
     // Local notifications kurulumu
     const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const initSettings = InitializationSettings(android: androidSettings);
-    await _localNotifications.initialize(initSettings);
+    const iosSettings = DarwinInitializationSettings(
+      requestAlertPermission: false,
+      requestBadgePermission: false,
+      requestSoundPermission: false,
+    );
+    const initSettings = InitializationSettings(
+      android: androidSettings,
+      iOS: iosSettings,
+    );
+    try {
+      await _localNotifications.initialize(initSettings);
+    } catch (e) {
+      debugPrint('Yerel bildirim kurulumu hatası: $e');
+    }
 
     // Android'de yüksek öncelikli kanal oluştur
     await _localNotifications
