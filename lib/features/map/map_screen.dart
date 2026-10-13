@@ -123,7 +123,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
         });
       }
 
-      final cityInfo = await EventsService().detectUserCityAndDistrict();
+      final cityInfo = await EventsService().getCurrentLocation();
       final city = cityInfo['city'];
       final district = cityInfo['district'];
       if (mounted && (city != null || district != null)) {
@@ -880,7 +880,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
                       ),
                     ],
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.location_on_rounded, color: AppColors.primary, size: 14),
