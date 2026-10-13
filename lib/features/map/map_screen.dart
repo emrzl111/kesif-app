@@ -17,7 +17,6 @@ import '../../shared/widgets/premium_paywall_sheet.dart';
 import '../../services/auth_service.dart';
 import '../pharmacy/pharmacy_screen.dart' show Pharmacy;
 import 'widgets/map_markers.dart';
-import 'widgets/pharmacy_panel.dart';
 import 'widgets/weather_card_widget.dart';
 import '../../services/weather_service.dart';
 import '../../services/events_service.dart';
@@ -550,23 +549,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
         children: [
           _buildMap(),
           _buildTopBar(),
-          // Eczane listesi paneli
-          if (_showPharmacies)
-            PharmacyListPanel(
-              pharmacies: _pharmacies,
-              navigationTarget: _navigationTarget,
-              isOnDuty: _isPharmacyOnDuty,
-              onClose: () {
-                setState(() {
-                  _pharmacyFilterActive = false;
-                  _showPharmacies = false;
-                });
-                _applyFilters();
-              },
-              onPharmacyTap: (ph) =>
-                  _mapController.move(LatLng(ph.lat, ph.lon), 16),
-              onPharmacyNavTap: _showPharmacyInfo,
-            ),
+          // Eczaneler artık liste yerine sadece haritada işaretçi olarak gösterilir
           _buildBottomControls(),
           if (_isLoadingLocation) const MapLoadingOverlay(),
           if (_isLoadingRoute) const RouteLoadingIndicator(),
@@ -1030,10 +1013,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
                     padding: const EdgeInsets.symmetric(horizontal: 13),
                     decoration: BoxDecoration(
                       color: _pharmacyFilterActive
-                          ? const Color(0xFF2E7D32)
-                          : const Color(0xFF4CAF50).withValues(alpha: 0.15),
+                          ? const Color(0xFF43A047)
+                          : const Color(0xFF2E7D32),
                       borderRadius: BorderRadius.circular(22),
-                      border: Border.all(color: const Color(0xFF4CAF50), width: 1.5),
+                      border: Border.all(
+                        color: _pharmacyFilterActive ? Colors.white : const Color(0xFF81C784),
+                        width: 1.5,
+                      ),
                       boxShadow: [
                         if (_pharmacyFilterActive)
                           const BoxShadow(
@@ -1048,14 +1034,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
                       children: [
                         Icon(
                           Icons.add,
-                          color: _pharmacyFilterActive ? Colors.white : const Color(0xFF4CAF50),
+                          color: Colors.white,
                           size: 15,
                         ),
                         const SizedBox(width: 4),
                         Text(
                           'Nöbetçi',
                           style: TextStyle(
-                            color: _pharmacyFilterActive ? Colors.white : const Color(0xFF4CAF50),
+                            color: Colors.white,
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                           ),
