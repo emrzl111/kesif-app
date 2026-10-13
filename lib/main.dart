@@ -24,9 +24,27 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await _bootstrap();
+  } catch (e) {
+    AppLogger.error('Başlatma hatası', error: e, tag: 'Startup');
+    runApp(StartupErrorApp(message: '$e'));
+    return;
+  }
+  runApp(const KesifApp());
+}
+
+Future<void> _bootstrap() async {
   // API anahtarlarının inject edildiğini doğrula (debug modunda assertion)
   AppConfig.validate();
-  WidgetsFlutterBinding.ensureInitialized();
+  // Release derlemede assert çalışmaz; boş gelirse açıkça hata ver
+  if (AppConfig.supabaseUrl.isEmpty || AppConfig.supabaseAnonKey.isEmpty) {
+    throw StateError(
+      'SUPABASE_URL / SUPABASE_ANON_KEY derleme sırasında verilmemiş. '
+      'Codemagic değişkenlerini ve --dart-define ayarlarını kontrol edin.',
+    );
+  }
 
   // Sistem UI ayarları
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -72,8 +90,45 @@ Future<void> main() async {
       AppLogger.info('Kullanıcı oturum kapattı', tag: 'Auth');
     }
   });
+}
 
-  runApp(const KesifApp());
+/// Başlatma sırasında hata olursa beyaz ekran yerine hatayı gösterir.
+class StartupErrorApp extends StatelessWidget {
+  final String message;
+  const StartupErrorApp({super.key, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: const Color(0xFF1A1A2E),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Uygulama başlatılamadı',
+                  style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: SelectableText(
+                      message,
+                      style: const TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class KesifApp extends StatelessWidget {
