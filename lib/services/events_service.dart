@@ -264,22 +264,15 @@ class EventsService {
       AppLogger.error('Supabase etkinlik sorgu hatası', error: e, tag: 'EventsService');
     }
 
-    // Eğer veritabanında önümüzdeki 14 gün içinde en az 3 taze etkinlik yoksa hemen üret
-    if (events.length < 3) {
-      final freshEvents = await _seedAndFetchSystemEvents(city, category: category);
-      // Birleştir ve tekrarlayanları temizle
-      final map = <String, EventModel>{};
-      for (final e in [...events, ...freshEvents]) {
-        map[e.title] = e;
-      }
-      events = map.values.toList();
-    }
+    // Not: Eskiden burada veritabanında az etkinlik varsa örnek etkinlik üretiliyordu.
+    // Artık yalnızca scrape-events fonksiyonunun yazdığı gerçek etkinlikler gösterilir.
 
     events.sort((a, b) => a.startDate.compareTo(b.startDate));
     return events;
   }
 
-  /// Veritabanında yaklaşan etkinlik azsa taze dinamik etkinlikleri üretir ve veritabanını günceller
+  /// (Kullanılmıyor) Örnek etkinlik üreticisi — üretimde çağrılmaz.
+  // ignore: unused_element
   Future<List<EventModel>> _seedAndFetchSystemEvents(String city, {String? category}) async {
     final cityCoords = {
       // Marmara
