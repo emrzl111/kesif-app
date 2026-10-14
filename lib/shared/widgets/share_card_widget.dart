@@ -257,28 +257,53 @@ class ShareCardWidget extends StatelessWidget {
 }
 
 // ─── Widget'ı PNG olarak yakala ve paylaş ─────────────────────────────────────
-Future<void> captureAndShare(GlobalKey repaintKey, String title) async {
+Future<void> captureAndShare(GlobalKey repaintKey, String title,
+    {BuildContext? context}) async {
+  final shareText = '📍 $title • Keşif uygulamasında keşfedildi! #Keşif';
+
+  // iOS/iPad için paylaşım penceresinin çıkacağı konum
+  Rect? origin;
+  if (context != null) {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box != null && box.hasSize) {
+      origin = box.localToGlobal(Offset.zero) & box.size;
+    }
+  }
+
   try {
     final boundary = repaintKey.currentContext?.findRenderObject()
         as RenderRepaintBoundary?;
-    if (boundary == null) return;
+    if (boundary == null) throw Exception('Görsel alanı bulunamadı');
 
-    final image = await boundary.toImage(pixelRatio: 3.0);
+    final image = await boundary.toImage(pixelRatio: 2.0);
     final byteData =
         await image.toByteData(format: ui.ImageByteFormat.png);
-    if (byteData == null) return;
+    if (byteData == null) throw Exception('Görsel oluşturulamadı');
 
     final Uint8List pngBytes = byteData.buffer.asUint8List();
     final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/kesif_share.png');
+    final file = File(
+        '${dir.path}/kesif_share_${DateTime.now().millisecondsSinceEpoch}.png');
     await file.writeAsBytes(pngBytes);
 
     await Share.shareXFiles(
-      [XFile(file.path)],
-      text: '📍 $title • Keşif uygulamasında keşfedildi! #Keşif',
+      [XFile(file.path, mimeType: 'image/png')],
+      text: shareText,
+      sharePositionOrigin: origin,
     );
   } catch (e) {
     debugPrint('Paylaşım hatası: $e');
+    // Görsel paylaşılamazsa en azından metni paylaşmayı dene
+    try {
+      await Share.share(shareText, sharePositionOrigin: origin);
+    } catch (e2) {
+      debugPrint('Metin paylaşım hatası: $e2');
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Paylaşılamadı: $e2')),
+        );
+      }
+    }
   }
 }
 
@@ -356,10 +381,12 @@ class _SharePointSheetState extends State<SharePointSheet> {
               onPressed: _isSharing
                   ? null
                   : () async {
+                      final btnContext = context;
                       setState(() => _isSharing = true);
                       await captureAndShare(
-                          _repaintKey, widget.point.title);
-                      setState(() => _isSharing = false);
+                          _repaintKey, widget.point.title,
+                          context: btnContext);
+                      if (mounted) setState(() => _isSharing = false);
                     },
               icon: _isSharing
                   ? const SizedBox(
