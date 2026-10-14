@@ -54,7 +54,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
   bool _filterOnlyPetFriendly = false; // Pati dostu filtresi (Premium)
   int _tileLayerResetKey = 0; // Harita siyah ekran hatasını çözmek için dinamik key sayacı
   WeatherData? _weatherData;
-  String _weatherLocationText = 'İstanbul / Beyoğlu';
+  String _weatherLocationText = 'Konum aranıyor...';
 
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -130,7 +130,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
           if (city != null && district != null) {
             _weatherLocationText = '$city / $district';
           } else {
-            _weatherLocationText = city ?? district ?? 'İstanbul / Beyoğlu';
+            _weatherLocationText = city ?? district ?? _weatherLocationText;
           }
         });
       }
@@ -869,9 +869,14 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
                       Icon(Icons.location_on_rounded, color: AppColors.primary, size: 14),
                       SizedBox(width: 4),
                       Text(
-                        _weatherLocationText.length > 15
-                            ? '${_weatherLocationText.substring(0, 12)}...'
-                            : _weatherLocationText,
+                        () {
+                          final label = _weatherLocationText.contains(' / ')
+                              ? _weatherLocationText.split(' / ').last
+                              : _weatherLocationText;
+                          return label.length > 16
+                              ? '${label.substring(0, 14)}...'
+                              : label;
+                        }(),
                         style: const TextStyle(
                           color: AppColors.textPrimary,
                           fontSize: 12,
@@ -936,21 +941,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
                       height: 44,
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       decoration: BoxDecoration(
-                        color: MapScreen.selectedRadiusKm != null
-                            ? AppColors.primary.withValues(alpha: 0.18)
-                            : AppColors.surface.withValues(alpha: 0.95),
+                        color: AppColors.primary.withValues(alpha: 0.22),
                         borderRadius: BorderRadius.circular(22),
                         border: Border.all(
-                          color: MapScreen.selectedRadiusKm != null
-                              ? AppColors.primary
-                              : AppColors.border,
-                          width: MapScreen.selectedRadiusKm != null ? 1.5 : 1.0,
+                          color: AppColors.primary,
+                          width: 1.5,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: MapScreen.selectedRadiusKm != null
-                                ? AppColors.primary.withValues(alpha: 0.3)
-                                : Colors.black.withValues(alpha: 0.3),
+                            color: AppColors.primary.withValues(alpha: 0.3),
                             blurRadius: 10,
                             offset: const Offset(0, 3),
                           ),
@@ -959,12 +958,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.radar_rounded,
                             size: 16,
-                            color: MapScreen.selectedRadiusKm != null
-                                ? AppColors.primary
-                                : AppColors.textSecondary,
+                            color: AppColors.primary,
                           ),
                           const SizedBox(width: 6),
                           Text(
@@ -975,21 +972,17 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
                                     : (MapScreen.selectedRadiusKm == null
                                         ? 'Sınırsız'
                                         : '${MapScreen.selectedRadiusKm!.toStringAsFixed(0)} km')),
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: MapScreen.selectedRadiusKm != null
-                                  ? AppColors.primary
-                                  : AppColors.textSecondary,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
                             ),
                           ),
                           const SizedBox(width: 4),
-                          Icon(
+                          const Icon(
                             Icons.swap_horiz_rounded,
                             size: 14,
-                            color: MapScreen.selectedRadiusKm != null
-                                ? AppColors.primary
-                                : AppColors.textHint,
+                            color: AppColors.primary,
                           ),
                         ],
                       ),

@@ -67,50 +67,106 @@ class EventsService {
 
   final SupabaseClient _supabase = Supabase.instance.client;
 
-  // Mevcut şehri ve ilçeyi GPS + Nominatim ile tespit et
+  Map<String, String?>? _cachedLocation;
+  DateTime? _cachedLocationAt;
+
+  // Mevcut şehri ve ilçeyi GPS + reverse geocoding ile tespit et
   Future<Map<String, String?>> getCurrentLocation() async {
+    final cached = _cachedLocation;
+    final cachedAt = _cachedLocationAt;
+    if (cached != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < const Duration(minutes: 5)) {
+      return cached;
+    }
+
     try {
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
-      if (permission == LocationPermission.deniedForever) {
+      if (permission == LocationPermission.deniedForever ||
+          permission == LocationPermission.denied) {
         return {'city': null, 'district': null};
       }
 
-      final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
-      );
+      Position? pos;
+      try {
+        pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
+        ).timeout(const Duration(seconds: 10));
+      } catch (_) {
+        pos = await Geolocator.getLastKnownPosition();
+      }
+      if (pos == null) return {'city': null, 'district': null};
 
-      // Nominatim reverse geocoding (ücretsiz, API key gereksiz)
+      Map<String, String?> result = await _reverseGeocodeNominatim(pos.latitude, pos.longitude);
+      if (result['city'] == null && result['district'] == null) {
+        result = await _reverseGeocodeFallback(pos.latitude, pos.longitude);
+      }
+
+      if (result['city'] != null || result['district'] != null) {
+        _cachedLocation = result;
+        _cachedLocationAt = DateTime.now();
+      }
+      return result;
+    } catch (e) {
+      AppLogger.error('Konum tespit hatası', error: e, tag: 'EventsService');
+    }
+    return {'city': null, 'district': null};
+  }
+
+  Future<Map<String, String?>> _reverseGeocodeNominatim(double lat, double lon) async {
+    try {
       final url = Uri.parse(
         'https://nominatim.openstreetmap.org/reverse'
-        '?format=json&lat=${pos.latitude}&lon=${pos.longitude}&accept-language=tr',
+        '?format=json&lat=$lat&lon=$lon&accept-language=tr&zoom=14&addressdetails=1',
       );
-
       final response = await http.get(url, headers: {
-        'User-Agent': 'KesifApp/1.0',
-      });
+        'User-Agent': 'KesifApp/1.1 (emreozell@gmail.com)',
+      }).timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final address = data['address'] as Map<String, dynamic>?;
 
-        String? city = address?['city'] as String? ??
-            address?['province'] as String? ??
+        String? city = address?['province'] as String? ??
+            address?['city'] as String? ??
             address?['state'] as String?;
 
-        String? district = address?['suburb'] as String? ??
-            address?['city_district'] as String? ??
-            address?['district'] as String?;
+        // İlçe adını mahalleden önce al (Türkiye'de ilçe: city_district / town / county)
+        String? district = address?['city_district'] as String? ??
+            address?['town'] as String? ??
+            address?['county'] as String? ??
+            address?['district'] as String? ??
+            address?['suburb'] as String?;
 
-        // Şehir adını normalize et
-        city = _normalizeCity(city);
-
-        return {'city': city, 'district': district};
+        return {'city': _normalizeCity(city), 'district': district};
       }
     } catch (e) {
-      AppLogger.error('Konum tespit hatası', error: e, tag: 'EventsService');
+      AppLogger.error('Nominatim hatası', error: e, tag: 'EventsService');
+    }
+    return {'city': null, 'district': null};
+  }
+
+  // Yedek servis (API anahtarı gerektirmez)
+  Future<Map<String, String?>> _reverseGeocodeFallback(double lat, double lon) async {
+    try {
+      final url = Uri.parse(
+        'https://api.bigdatacloud.net/data/reverse-geocode-client'
+        '?latitude=$lat&longitude=$lon&localityLanguage=tr',
+      );
+      final response = await http.get(url).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        final city = data['principalSubdivision'] as String?;
+        final district = (data['city'] as String?)?.isNotEmpty == true
+            ? data['city'] as String?
+            : data['locality'] as String?;
+        return {'city': _normalizeCity(city), 'district': district};
+      }
+    } catch (e) {
+      AppLogger.error('Yedek konum servisi hatası', error: e, tag: 'EventsService');
     }
     return {'city': null, 'district': null};
   }

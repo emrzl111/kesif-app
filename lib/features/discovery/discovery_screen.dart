@@ -70,18 +70,20 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
         : await _db.getAllPoints();
 
     List<DiscoveryPoint> initialPoints = List.from(localPoints);
-    final double activeRadiusKm = MapScreen.selectedRadiusKm ?? 5.0;
+    final double? activeRadiusKm = MapScreen.selectedRadiusKm;
     try {
       final pos = await Geolocator.getCurrentPosition();
-      initialPoints = initialPoints.where((p) {
-        final dist = Geolocator.distanceBetween(
-          pos.latitude,
-          pos.longitude,
-          p.latitude,
-          p.longitude,
-        );
-        return dist <= (activeRadiusKm * 1000);
-      }).toList();
+      if (activeRadiusKm != null) {
+        initialPoints = initialPoints.where((p) {
+          final dist = Geolocator.distanceBetween(
+            pos.latitude,
+            pos.longitude,
+            p.latitude,
+            p.longitude,
+          );
+          return dist <= (activeRadiusKm * 1000);
+        }).toList();
+      }
     } catch (_) {}
 
     if (mounted) {
@@ -149,15 +151,17 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
 
       try {
         final pos = await Geolocator.getCurrentPosition();
-        updatedPoints = updatedPoints.where((p) {
-          final dist = Geolocator.distanceBetween(
-            pos.latitude,
-            pos.longitude,
-            p.latitude,
-            p.longitude,
-          );
-          return dist <= (activeRadiusKm * 1000);
-        }).toList();
+        if (activeRadiusKm != null) {
+          updatedPoints = updatedPoints.where((p) {
+            final dist = Geolocator.distanceBetween(
+              pos.latitude,
+              pos.longitude,
+              p.latitude,
+              p.longitude,
+            );
+            return dist <= (activeRadiusKm * 1000);
+          }).toList();
+        }
       } catch (_) {}
 
       final Map<String, List<int>> pointRatings = {};
@@ -222,7 +226,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
         try {
           final pos = await Geolocator.getCurrentPosition(
             locationSettings: const LocationSettings(accuracy: LocationAccuracy.medium),
-          );
+          ).timeout(const Duration(seconds: 8));
           
           if (mounted) {
             setState(() {
