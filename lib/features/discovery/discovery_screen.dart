@@ -372,7 +372,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
                         ),
                         child: Text(
                           _showEventsTab
-                              ? '${_upcomingEvents().length} etkinlik'
+                              ? 'Bugün ${_todayEventCount()} etkinlik'
                               : '${_points.length} nokta',
                           style: const TextStyle(
                             color: AppColors.primary,
@@ -557,6 +557,18 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
         ),
       ),
     );
+  }
+
+  /// Bugün gerçekleşen (devam edenler dahil) etkinlik sayısı.
+  int _todayEventCount() {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
+    return _upcomingEvents().where((e) {
+      final start = e.startDate.toLocal();
+      final end = (e.endDate ?? e.startDate).toLocal();
+      return end.isAfter(todayStart) && start.isBefore(todayEnd);
+    }).length;
   }
 
   /// Bugünden itibaren 10 gün içindeki (devam edenler dahil) etkinlikler.
