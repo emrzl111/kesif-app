@@ -663,7 +663,8 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
     final timeStr = isToday
         ? 'Bugün · ${localStart.hour.toString().padLeft(2, '0')}:${localStart.minute.toString().padLeft(2, '0')}'
             '${localEnd != null ? ' – ${localEnd.hour.toString().padLeft(2, '0')}:${localEnd.minute.toString().padLeft(2, '0')}' : ''}'
-        : DateFormat('d MMM, HH:mm', 'tr').format(localStart);
+        : '${localStart.day} ${const ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'][localStart.month - 1]}, '
+            '${localStart.hour.toString().padLeft(2, '0')}:${localStart.minute.toString().padLeft(2, '0')}';
 
     String? distanceStr;
     if (_userPosition != null && event.latitude != null && event.longitude != null) {
