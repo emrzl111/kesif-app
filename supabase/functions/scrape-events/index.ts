@@ -571,9 +571,18 @@ function stripTags(html: string): string {
 // "22.10.2026" veya "22.10.2026 20:30" → İstanbul saatiyle ISO
 function parseTrDate(str?: string | null): string | null {
   if (!str) return null;
-  const m = str.trim().match(/(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
-  if (!m) return null;
+  const s = str.trim();
   const pad = (n: string) => n.padStart(2, "0");
+
+  // "2026-10-14 19:00:00" veya "2026-10-14T19:00"
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/);
+  if (iso) {
+    const hh = iso[4] ? pad(iso[4]) : "12";
+    return `${iso[1]}-${iso[2]}-${iso[3]}T${hh}:${iso[5] ?? "00"}:00+03:00`;
+  }
+
+  const m = s.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (!m) return null;
   const hh = m[4] ? pad(m[4]) : "12";
   const mm = m[5] ?? "00";
   return `${m[3]}-${pad(m[2])}-${pad(m[1])}T${hh}:${mm}:00+03:00`;
