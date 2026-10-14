@@ -551,6 +551,7 @@ async function scrapeIZBB(): Promise<EventInsert[]> {
 // Liste: /wp-json/wp/v2/event_listing, tarih/mekan: etkinlik sayfasındaki JSON-LD
 // ─────────────────────────────────────────────────────────
 const KI_HEADERS = { "User-Agent": "Mozilla/5.0 (compatible; KesifApp/1.1)" };
+const kiDebug: string[] = [];
 
 function decodeEntities(s: string): string {
   return s
@@ -610,9 +611,11 @@ async function scrapeKulturIstanbul(): Promise<EventInsert[]> {
     );
     if (!listRes.ok) {
       console.error("[KültürİstanbulAPI] Liste alınamadı:", listRes.status);
+      kiDebug.push(`liste durum=${listRes.status}`);
       return events;
     }
     const list = await listRes.json();
+    kiDebug.push(`liste=${Array.isArray(list) ? list.length : "dizi degil"}`);
     const now = Date.now();
 
     // Sayfaları 8'erli paralel çek
@@ -625,7 +628,7 @@ async function scrapeKulturIstanbul(): Promise<EventInsert[]> {
           if (lower.includes("iptal") || lower.includes("ertelendi")) return null;
 
           const page = await fetch(item.link, { headers: KI_HEADERS });
-          if (!page.ok) return null;
+          if (!page.ok) { if (kiDebug.length < 8) kiDebug.push(`sayfa durum=${page.status}`); return null; }
           const html = await page.text();
 
           let ld: any = null;
@@ -635,10 +638,10 @@ async function scrapeKulturIstanbul(): Promise<EventInsert[]> {
               if (o && o["@type"] === "Event") { ld = o; break; }
             } catch { /* devam */ }
           }
-          if (!ld) return null;
+          if (!ld) { if (kiDebug.length < 8) kiDebug.push("jsonld yok"); return null; }
 
           const start = parseTrDate(ld.startDate);
-          if (!start) return null;
+          if (!start) { if (kiDebug.length < 8) kiDebug.push(`tarih yok: ${ld.startDate}`); return null; }
           const end = parseTrDate(ld.endDate);
 
           // Geçmişte bitmiş etkinlikleri alma
@@ -676,6 +679,7 @@ async function scrapeKulturIstanbul(): Promise<EventInsert[]> {
     }
   } catch (err) {
     console.error("[KültürİstanbulAPI] Hata:", err);
+    kiDebug.push(`hata: ${String(err)}`);
   }
   return events;
 }
@@ -777,6 +781,7 @@ serve(async (req) => {
       eventsFound: totalEvents.length,
       eventsSaved: totalSaved,
       elapsedMs: elapsed,
+      debug: kiDebug,
     };
 
     console.log("[scrape-events] Tamamlandı:", result);
