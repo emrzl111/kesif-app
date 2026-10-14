@@ -7,6 +7,7 @@ import '../../services/chat_service.dart';
 import '../../shared/models/models.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'friends_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -300,8 +301,91 @@ class _ProfileScreenState extends State<ProfileScreen>
           ],
           _buildSection('Rozetler', _buildBadges()),
           const SizedBox(height: 24),
+          _buildLegalSection(),
+          const SizedBox(height: 24),
           _buildDeleteAccountSection(),
           const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  static const String _privacyUrl = 'https://emrzl111.github.io/kesif-privacy/';
+  static const String _supportEmail = 'emreozell@gmail.com';
+
+  Future<void> _openUrl(Uri uri) async {
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bağlantı açılamadı.')),
+        );
+      }
+    }
+  }
+
+  void _showTerms() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Kullanım Koşulları',
+            style: TextStyle(color: AppColors.textPrimary)),
+        content: const SingleChildScrollView(
+          child: Text(
+            'Keşif\'i kullanarak aşağıdaki koşulları kabul etmiş olursunuz.\n\n'
+            '• Uygunsuz, nefret söylemi içeren, taciz edici, yasa dışı, cinsel içerikli veya yanıltıcı içeriğe KESİNLİKLE tolerans gösterilmez.\n\n'
+            '• Bu tür içerik paylaşan veya diğer kullanıcılara rahatsızlık veren hesaplar uyarı yapılmadan kaldırılabilir.\n\n'
+            '• Uygunsuz bir kullanıcı veya mesajı profil ve sohbet ekranlarındaki "Şikayet Et" seçeneğiyle bildirebilir, kullanıcıları engelleyebilirsiniz. Şikayetler en geç 24 saat içinde incelenir.\n\n'
+            '• Eklediğiniz pin, etkinlik ve mesajlardan siz sorumlusunuz. Başkalarının haklarını ihlal eden içerik paylaşmamalısınız.\n\n'
+            '• Nöbetçi eczane ve etkinlik bilgileri üçüncü taraf kaynaklardan alınır; doğruluğu garanti edilmez.\n\n'
+            '• Hesabınızı ve verilerinizi Profil ekranından kalıcı olarak silebilirsiniz.\n\n'
+            'İletişim: emreozell@gmail.com',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.4),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Kapat'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLegalSection() {
+    Widget tile(IconData icon, String title, VoidCallback onTap) {
+      return ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(icon, color: AppColors.primary, size: 20),
+        title: Text(title,
+            style: const TextStyle(color: AppColors.textPrimary, fontSize: 14)),
+        trailing: const Icon(Icons.chevron_right,
+            color: AppColors.textSecondary, size: 18),
+        onTap: onTap,
+      );
+    }
+
+    return _buildSection(
+      'Yasal & Destek',
+      Column(
+        children: [
+          tile(Icons.privacy_tip_outlined, 'Gizlilik Politikası',
+              () => _openUrl(Uri.parse(_privacyUrl))),
+          tile(Icons.description_outlined, 'Kullanım Koşulları', _showTerms),
+          tile(
+            Icons.mail_outline,
+            'Destek: $_supportEmail',
+            () => _openUrl(Uri(
+              scheme: 'mailto',
+              path: _supportEmail,
+              queryParameters: {'subject': 'Keşif Destek'},
+            )),
+          ),
         ],
       ),
     );
