@@ -142,6 +142,17 @@ class AuthService {
           .eq('id', userId)
           .maybeSingle();
       if (res != null && res['nickname'] != null && (res['nickname'] as String).trim().isNotEmpty) {
+        final nick = (res['nickname'] as String).trim();
+
+        // Apple "E-postamı gizle" ile gelen kullanıcılarda veritabanı, takma adı
+        // gizli e-postanın rastgele ön ekinden üretmiş olabilir -> geçerli sayma.
+        final email = currentUser?.email?.toLowerCase();
+        if (email != null && email.contains('privaterelay.appleid.com')) {
+          final prefix = email.split('@').first;
+          if (nick.toLowerCase() == prefix || _slugify(nick) == _slugify(prefix)) {
+            return false;
+          }
+        }
         return true;
       }
       return false;

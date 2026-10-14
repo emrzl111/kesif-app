@@ -300,8 +300,6 @@ class _ProfileScreenState extends State<ProfileScreen>
           ],
           _buildSection('Rozetler', _buildBadges()),
           const SizedBox(height: 24),
-          _buildSection('Uygulama Hakkında', _buildAbout()),
-          const SizedBox(height: 24),
           _buildDeleteAccountSection(),
           const SizedBox(height: 32),
         ],
@@ -787,43 +785,6 @@ class _ProfileScreenState extends State<ProfileScreen>
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildAbout() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: [
-          _aboutRow(Icons.map_outlined, 'Harita', 'OpenStreetMap'),
-          const Divider(color: AppColors.divider, height: 24),
-          _aboutRow(Icons.location_on_outlined, 'Konum', 'Cihaz GPS'),
-          const Divider(color: AppColors.divider, height: 24),
-          _aboutRow(Icons.storage_outlined, 'Veri', 'Supabase + Yerel DB'),
-          const Divider(color: AppColors.divider, height: 24),
-          _aboutRow(Icons.info_outline, 'Versiyon', '1.0.0'),
-        ],
-      ),
-    );
-  }
-
-  Widget _aboutRow(IconData icon, String label, String value) {
-    return Row(
-      children: [
-        Icon(icon, color: AppColors.textSecondary, size: 20),
-        const SizedBox(width: 12),
-        Text(label,
-            style: const TextStyle(color: AppColors.textSecondary)),
-        const Spacer(),
-        Text(value,
-            style: const TextStyle(
-                color: AppColors.textPrimary, fontWeight: FontWeight.w500)),
-      ],
     );
   }
 

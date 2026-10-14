@@ -372,7 +372,7 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
                         ),
                         child: Text(
                           _showEventsTab
-                              ? '${_events.where((e) => e.startDate.isBefore(DateTime.now().add(const Duration(days: 10)))).length} etkinlik'
+                              ? '${_upcomingEvents().length} etkinlik'
                               : '${_points.length} nokta',
                           style: const TextStyle(
                             color: AppColors.primary,
@@ -387,8 +387,8 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
                   Text(
                     _showEventsTab
                         ? (_currentDistrict != null
-                            ? '📍 Bugün · $_currentDistrict etkinlikleri'
-                            : '📍 Bugün · ${_currentCity ?? "Şehriniz"} etkinlikleri')
+                            ? '📍 Yaklaşan · $_currentDistrict etkinlikleri'
+                            : '📍 Yaklaşan · ${_currentCity ?? "Şehriniz"} etkinlikleri')
                         : (_activeFilter != null
                             ? '${_activeFilter!.emoji} ${_activeFilter!.labelTR} kategorisinde'
                             : 'Tüm kategorilerde keşif noktaları'),
@@ -559,33 +559,37 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
     );
   }
 
-  Widget _buildEventsVerticalList() {
+  /// Bugünden itibaren 10 gün içindeki (devam edenler dahil) etkinlikler.
+  /// Hem sayacın hem listenin aynı kaynaktan beslenmesi için ortak.
+  List<EventModel> _upcomingEvents() {
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
-    final todayEnd = todayStart.add(const Duration(days: 1));
+    final limit = todayStart.add(const Duration(days: 10));
 
-    // Sadece bugünkü etkinlikler
-    var todayEvents = _events.where((e) {
+    var list = _events.where((e) {
       final start = e.startDate.toLocal();
-      final end = e.endDate?.toLocal();
-      // Bugün başlayan VEYA bugün devam eden etkinlikler
-      final startsToday = start.isAfter(todayStart) && start.isBefore(todayEnd);
-      final ongoingToday = end != null && start.isBefore(todayEnd) && end.isAfter(todayStart);
-      return startsToday || ongoingToday;
+      final end = (e.endDate ?? e.startDate).toLocal();
+      return end.isAfter(todayStart) && start.isBefore(limit);
     }).toList();
 
-    // Semte göre filtrele (district varsa)
+    // Semte göre filtrele (district varsa ve eşleşme varsa)
     if (_currentDistrict != null && _currentDistrict!.isNotEmpty) {
-      final districtFiltered = todayEvents.where((e) {
+      final districtFiltered = list.where((e) {
         if (e.district == null) return false;
         return e.district!.toLowerCase().contains(_currentDistrict!.toLowerCase()) ||
             _currentDistrict!.toLowerCase().contains(e.district!.toLowerCase());
       }).toList();
-      // Semt eşleşmesi varsa onu kullan, yoksa tüm bugünkü etkinlikleri göster
       if (districtFiltered.isNotEmpty) {
-        todayEvents = districtFiltered;
+        list = districtFiltered;
       }
     }
+
+    list.sort((a, b) => a.startDate.compareTo(b.startDate));
+    return list;
+  }
+
+  Widget _buildEventsVerticalList() {
+    final todayEvents = _upcomingEvents();
 
     if (_eventsLoading) {
       return const SliverFillRemaining(
@@ -607,8 +611,8 @@ class _DiscoveryScreenState extends State<DiscoveryScreen>
                 const SizedBox(height: 16),
                 Text(
                   _currentDistrict != null
-                      ? '$_currentDistrict\'de bugün gerçekleşecek etkinlik bulunamadı.'
-                      : 'Bugün ${_currentCity ?? "şehrinizde"} etkinlik bulunamadı.',
+                      ? '$_currentDistrict civarında yaklaşan etkinlik bulunamadı.'
+                      : '${_currentCity ?? "Şehrinizde"} yaklaşan etkinlik bulunamadı.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: AppColors.textSecondary, fontSize: 15),
                 ),
