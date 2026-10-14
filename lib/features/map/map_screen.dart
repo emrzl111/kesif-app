@@ -660,7 +660,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
         // Pin marker'ları
         MarkerLayer(
           markers: [
-            ..._filteredPoints.map((point) => Marker(
+            if (!_pharmacyFilterActive) ..._filteredPoints.map((point) => Marker(
                   point: LatLng(point.latitude, point.longitude),
                   width: 58,
                   height: 62,
