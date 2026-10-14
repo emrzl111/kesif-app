@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -87,11 +88,49 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
     _loadPoints();
   }
 
+  StreamSubscription<Position>? _positionSub;
+
   Future<void> _initLocation() async {
-    final pos = await _locationService.getCurrentPosition();
+    // Son bilinen konum varsa haritayı anında göster (arka plandan dönüşte beklemesin)
+    Position? cached = _locationService.lastPosition;
+    if (cached == null) {
+      try {
+        cached = await Geolocator.getLastKnownPosition();
+      } catch (_) {}
+    }
+    if (mounted && cached != null) {
+      setState(() {
+        _userLocation = LatLng(cached!.latitude, cached.longitude);
+        _isLoadingLocation = false;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _userLocation == null) return;
+        try {
+          _mapController.move(_userLocation!, 15);
+        } catch (_) {}
+      });
+    }
+
+    // Güvenlik: konum ne olursa olsun yükleme ekranı en fazla 5 sn görünsün
+    Future.delayed(const Duration(seconds: 5), () {
+      if (mounted && _isLoadingLocation) {
+        setState(() => _isLoadingLocation = false);
+      }
+    });
+
+    Position? pos;
+    try {
+      pos = await _locationService
+          .getCurrentPosition()
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      pos = null;
+    }
+    pos ??= cached;
+
     if (mounted && pos != null) {
       setState(() {
-        _userLocation = LatLng(pos.latitude, pos.longitude);
+        _userLocation = LatLng(pos!.latitude, pos.longitude);
         _isLoadingLocation = false;
       });
       _mapController.move(_userLocation!, 15);
@@ -106,7 +145,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
       _loadWeather(41.0082, 28.9784); // Hava durumunu yükle
     }
     _locationService.startTracking();
-    _locationService.positionStream.listen((pos) {
+    _positionSub?.cancel();
+    _positionSub = _locationService.positionStream.listen((pos) {
       if (mounted) {
         setState(() => _userLocation = LatLng(pos.latitude, pos.longitude));
         _applyFilters();
@@ -535,6 +575,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _positionSub?.cancel();
     _pulseController.dispose();
     MapScreen.triggerPendingNavigation = null;
     MapScreen.refreshPoints = null;
