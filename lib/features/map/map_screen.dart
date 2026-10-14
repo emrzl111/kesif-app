@@ -982,11 +982,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
                       height: 44,
                       padding: const EdgeInsets.symmetric(horizontal: 14),
                       decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.22),
+                        color: const Color(0xFF1A1030),
                         borderRadius: BorderRadius.circular(22),
                         border: Border.all(
                           color: AppColors.primary,
-                          width: 1.5,
+                          width: 2.5,
                         ),
                         boxShadow: [
                           BoxShadow(
@@ -1014,8 +1014,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
                                         ? 'Sınırsız'
                                         : '${MapScreen.selectedRadiusKm!.toStringAsFixed(0)} km')),
                             style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
                               color: Colors.white,
                             ),
                           ),
@@ -1073,7 +1073,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin, Wi
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          'Nöbetçi',
+                          'Eczane',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 12,
