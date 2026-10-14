@@ -74,6 +74,9 @@ class AuthService {
   /// iOS: Apple ile giriş (App Store Kural 4.8).
   /// Apple'dan gelen kimlik belirteci Supabase oturumuna çevrilir.
   /// Kullanıcı pencereyi kapatırsa [SignInWithAppleAuthorizationException] (canceled) fırlatılır.
+  /// Apple'dan gelen ad soyad (yalnızca ilk girişte verilir); takma ad önerisinde kullanılır.
+  static String? _pendingAppleName;
+
   Future<AuthResponse> signInWithApple() async {
     final rawNonce = _supabase.auth.generateRawNonce();
     final hashedNonce = sha256.convert(utf8.encode(rawNonce)).toString();
@@ -89,6 +92,15 @@ class AuthService {
     final idToken = credential.identityToken;
     if (idToken == null) {
       throw const AuthException('Apple kimlik bilgisi alınamadı.');
+    }
+
+    // Oturum açılır açılmaz takma ad ekranı çıkabileceği için adı önceden sakla
+    final givenName = credential.givenName;
+    final familyName = credential.familyName;
+    if (givenName != null && givenName.trim().isNotEmpty) {
+      _pendingAppleName = [givenName, familyName]
+          .where((s) => s != null && s.trim().isNotEmpty)
+          .join(' ');
     }
 
     final res = await _supabase.auth.signInWithIdToken(
@@ -181,15 +193,20 @@ class AuthService {
     final user = currentUser;
     if (user == null) return 'kesifci_${DateTime.now().millisecondsSinceEpoch % 1000}';
 
-    final metaName = user.userMetadata?['full_name'] as String? ?? 
-                     user.userMetadata?['name'] as String?;
+    final metaName = _pendingAppleName ??
+        user.userMetadata?['full_name'] as String? ??
+        user.userMetadata?['name'] as String?;
     if (metaName != null && metaName.trim().isNotEmpty) {
       final cleaned = _slugify(metaName);
       if (cleaned.length >= 3) return cleaned;
     }
 
-    if (user.email != null && user.email!.contains('@')) {
-      final emailPrefix = user.email!.split('@').first;
+    // Apple'ın gizli (relay) e-posta adresi anlamsız bir öneri üretir, kullanma
+    final email = user.email;
+    if (email != null &&
+        email.contains('@') &&
+        !email.toLowerCase().contains('privaterelay.appleid.com')) {
+      final emailPrefix = email.split('@').first;
       final cleaned = _slugify(emailPrefix);
       if (cleaned.length >= 3) return cleaned;
     }
