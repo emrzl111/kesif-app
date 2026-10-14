@@ -547,6 +547,140 @@ async function scrapeIZBB(): Promise<EventInsert[]> {
 }
 
 // ─────────────────────────────────────────────────────────
+// KÜLTÜR İSTANBUL (İBB Kültür AŞ) — resmi WordPress JSON servisi
+// Liste: /wp-json/wp/v2/event_listing, tarih/mekan: etkinlik sayfasındaki JSON-LD
+// ─────────────────────────────────────────────────────────
+const KI_HEADERS = { "User-Agent": "Mozilla/5.0 (compatible; KesifApp/1.1)" };
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n)))
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .trim();
+}
+
+function stripTags(html: string): string {
+  return decodeEntities(html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " "));
+}
+
+// "22.10.2026" veya "22.10.2026 20:30" → İstanbul saatiyle ISO
+function parseTrDate(str?: string | null): string | null {
+  if (!str) return null;
+  const m = str.trim().match(/(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (!m) return null;
+  const pad = (n: string) => n.padStart(2, "0");
+  const hh = m[4] ? pad(m[4]) : "12";
+  const mm = m[5] ?? "00";
+  return `${m[3]}-${pad(m[2])}-${pad(m[1])}T${hh}:${mm}:00+03:00`;
+}
+
+function mapKiCategory(typeNames: string[]): string {
+  const t = typeNames.join(" ").toLowerCase();
+  if (t.includes("müzikal") || t.includes("tiyatro") || t.includes("drama") || t.includes("stand up") || t.includes("performans")) return "tiyatro";
+  if (t.includes("konser") || t.includes("dinleti")) return "konser";
+  if (t.includes("sergi")) return "sergi";
+  if (t.includes("film")) return "sinema";
+  if (t.includes("festival")) return "festival";
+  if (t.includes("atölye") || t.includes("seminer") || t.includes("söyleşi")) return "atolye";
+  if (t.includes("bale")) return "dans";
+  if (t.includes("çocuk") || t.includes("masal")) return "cocuk";
+  return "etkinlik";
+}
+
+async function scrapeKulturIstanbul(): Promise<EventInsert[]> {
+  const events: EventInsert[] = [];
+  try {
+    // Etkinlik türü adları (id → ad)
+    const typeNames: Record<number, string> = {};
+    const typesRes = await fetch(
+      "https://kultur.istanbul/wp-json/wp/v2/event_listing_type?per_page=100&_fields=id,name",
+      { headers: KI_HEADERS },
+    );
+    if (typesRes.ok) {
+      for (const t of await typesRes.json()) typeNames[t.id] = decodeEntities(t.name);
+    }
+
+    const listRes = await fetch(
+      "https://kultur.istanbul/wp-json/wp/v2/event_listing?per_page=100&orderby=date&order=desc&_fields=id,link,title,content,event_listing_type",
+      { headers: KI_HEADERS },
+    );
+    if (!listRes.ok) {
+      console.error("[KültürİstanbulAPI] Liste alınamadı:", listRes.status);
+      return events;
+    }
+    const list = await listRes.json();
+    const now = Date.now();
+
+    // Sayfaları 8'erli paralel çek
+    for (let i = 0; i < list.length; i += 8) {
+      const batch = list.slice(i, i + 8);
+      const results = await Promise.all(batch.map(async (item: any) => {
+        try {
+          const names: string[] = (item.event_listing_type ?? []).map((id: number) => typeNames[id] ?? "");
+          const lower = names.join(" ").toLowerCase();
+          if (lower.includes("iptal") || lower.includes("ertelendi")) return null;
+
+          const page = await fetch(item.link, { headers: KI_HEADERS });
+          if (!page.ok) return null;
+          const html = await page.text();
+
+          let ld: any = null;
+          for (const m of html.matchAll(/<script type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)) {
+            try {
+              const o = JSON.parse(m[1]);
+              if (o && o["@type"] === "Event") { ld = o; break; }
+            } catch { /* devam */ }
+          }
+          if (!ld) return null;
+
+          const start = parseTrDate(ld.startDate);
+          if (!start) return null;
+          const end = parseTrDate(ld.endDate);
+
+          // Geçmişte bitmiş etkinlikleri alma
+          const startMs = new Date(start).getTime();
+          const endMs = end ? new Date(end).getTime() : startMs;
+          if (Math.max(startMs, endMs) < now - 6 * 3600 * 1000) return null;
+
+          const place = ld.Location ?? ld.location ?? {};
+          const locationName = (place.address || place.name || "").toString().trim() || null;
+          const free = lower.includes("ücretsiz");
+
+          const ev: EventInsert = {
+            external_id: `kultur_istanbul_${item.id}`,
+            title: decodeEntities(item.title?.rendered ?? ld.name ?? ""),
+            description: stripTags(item.content?.rendered ?? "").slice(0, 500) || null,
+            category: mapKiCategory(names),
+            city: "İstanbul",
+            district: null,
+            location_name: locationName,
+            start_date: start,
+            end_date: end,
+            latitude: null,
+            longitude: null,
+            image_url: typeof ld.image === "string" ? ld.image : null,
+            source_url: item.link,
+            price: null, // Fiyat kaynakta sayısal olarak yok
+          };
+          return ev.title ? ev : null;
+        } catch (err) {
+          console.error("[KültürİstanbulAPI] Etkinlik hatası:", err);
+          return null;
+        }
+      }));
+      for (const r of results) if (r) events.push(r);
+    }
+  } catch (err) {
+    console.error("[KültürİstanbulAPI] Hata:", err);
+  }
+  return events;
+}
+
+// ─────────────────────────────────────────────────────────
 // VERİTABANINA KAYDET
 // ─────────────────────────────────────────────────────────
 async function upsertEvents(events: EventInsert[]): Promise<number> {
@@ -604,7 +738,7 @@ serve(async (req) => {
     // 1. İBB (her zaman)
     if (!cityParam || cityParam === "İstanbul") {
       console.log("[İBB] Taranıyor...");
-      const ibbEvents = await scrapeIBB();
+      const ibbEvents = await scrapeKulturIstanbul();
       totalEvents.push(...ibbEvents);
       console.log(`[İBB] ${ibbEvents.length} etkinlik bulundu`);
     }
