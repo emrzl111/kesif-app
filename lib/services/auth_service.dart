@@ -45,7 +45,6 @@ class AuthService {
         await _supabase.from('profiles').upsert({
           'id': res.user!.id,
           'nickname': nickname.trim(),
-          'updated_at': DateTime.now().toIso8601String(),
         });
       } catch (_) {}
     }
@@ -193,7 +192,6 @@ class AuthService {
     await _supabase.from('profiles').upsert({
       'id': user.id,
       'nickname': trimmed,
-      'updated_at': DateTime.now().toIso8601String(),
     });
   }
 
