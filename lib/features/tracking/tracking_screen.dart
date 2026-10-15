@@ -6,6 +6,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:uuid/uuid.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:permission_handler/permission_handler.dart';
 import '../../app/theme.dart';
@@ -41,6 +42,9 @@ class _TrackingScreenState extends State<TrackingScreen>
 
   // Yürüyüş sırasında işaretlenen noktalar
   final List<_Waypoint> _waypoints = [];
+
+  // Haftalık hedef (km) — kullanıcı değiştirebilir
+  double _weeklyGoalKm = 10;
 
   @override
   void initState() {
@@ -88,6 +92,7 @@ class _TrackingScreenState extends State<TrackingScreen>
   Future<void> _loadRoutes() async {
     final routes = await _dbService.getAllRoutes();
     if (mounted) setState(() => _savedRoutes = routes);
+    _loadGoal();
   }
 
   void _startTracking() async {
@@ -969,6 +974,13 @@ class _TrackingScreenState extends State<TrackingScreen>
             ),
           ],
         ),
+        if (_savedRoutes.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: _buildWeeklySummary(),
+            ),
+          ),
         if (_savedRoutes.isEmpty)
           SliverFillRemaining(
             child: _buildEmptyState(),
@@ -984,6 +996,221 @@ class _TrackingScreenState extends State<TrackingScreen>
             ),
           ),
       ],
+    );
+  }
+
+  Future<void> _loadGoal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final g = prefs.getDouble('weekly_goal_km');
+      if (g != null && mounted) setState(() => _weeklyGoalKm = g);
+    } catch (_) {}
+  }
+
+  Future<void> _pickGoal() async {
+    final picked = await showModalBottomSheet<double>(
+      context: context,
+      backgroundColor: AppColors.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Haftalık hedefin',
+                  style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [5.0, 10.0, 20.0, 30.0, 50.0].map((g) {
+                  final selected = g == _weeklyGoalKm;
+                  return ChoiceChip(
+                    label: Text('${g.toStringAsFixed(0)} km'),
+                    selected: selected,
+                    selectedColor: AppColors.route,
+                    onSelected: (_) => Navigator.pop(ctx, g),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    setState(() => _weeklyGoalKm = picked);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('weekly_goal_km', picked);
+    } catch (_) {}
+  }
+
+  String _formatTotalDuration(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    if (h > 0) return '${h}s ${m}d';
+    if (m > 0) return '$m dk';
+    return '$seconds sn';
+  }
+
+  Widget _buildWeeklySummary() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final weekStart = today.subtract(Duration(days: now.weekday - 1));
+    final weekEnd = weekStart.add(const Duration(days: 7));
+
+    final week = _savedRoutes.where((r) {
+      final t = r.recordedAt;
+      return !t.isBefore(weekStart) && t.isBefore(weekEnd);
+    }).toList();
+
+    final daily = List<double>.filled(7, 0);
+    double totalM = 0;
+    int totalSec = 0;
+    for (final r in week) {
+      daily[r.recordedAt.weekday - 1] += r.distanceMeters / 1000;
+      totalM += r.distanceMeters;
+      totalSec += r.durationSeconds;
+    }
+    final totalKm = totalM / 1000;
+    final progress = (_weeklyGoalKm <= 0 ? 0.0 : totalKm / _weeklyGoalKm).clamp(0.0, 1.0);
+    final reached = totalKm >= _weeklyGoalKm;
+    final maxDaily = daily.reduce((a, b) => a > b ? a : b);
+    const dayNames = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+
+    Widget stat(String value, String label) {
+      return Expanded(
+        child: Column(
+          children: [
+            Text(value,
+                style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800)),
+            const SizedBox(height: 2),
+            Text(label,
+                style: const TextStyle(
+                    color: AppColors.textSecondary, fontSize: 12)),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.bar_chart_rounded, color: AppColors.route, size: 20),
+              const SizedBox(width: 8),
+              const Text('Bu Hafta',
+                  style: TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold)),
+              const Spacer(),
+              GestureDetector(
+                onTap: _pickGoal,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: AppColors.route.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Hedef ${_weeklyGoalKm.toStringAsFixed(0)} km',
+                          style: const TextStyle(
+                              color: AppColors.route,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.edit_rounded,
+                          color: AppColors.route, size: 12),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              stat(totalKm.toStringAsFixed(1), 'km'),
+              stat(_formatTotalDuration(totalSec), 'süre'),
+              stat('${week.length}', 'rota'),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: AppColors.border,
+              valueColor: const AlwaysStoppedAnimation(AppColors.route),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            reached
+                ? '🎉 Haftalık hedefe ulaştın!'
+            : '${(_weeklyGoalKm - totalKm).toStringAsFixed(1)} km kaldı',
+            style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: List.generate(7, (i) {
+              final isToday = i == now.weekday - 1;
+              final h = maxDaily <= 0 ? 4.0 : 4.0 + (daily[i] / maxDaily) * 48;
+              return Expanded(
+                child: Column(
+                  children: [
+                    Container(
+                      height: h,
+                      margin: const EdgeInsets.symmetric(horizontal: 6),
+                      decoration: BoxDecoration(
+                        color: daily[i] > 0
+                            ? AppColors.route
+                            : AppColors.border,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      dayNames[i],
+                      style: TextStyle(
+                        color: isToday
+                            ? AppColors.textPrimary
+                            : AppColors.textSecondary,
+                        fontSize: 11,
+                        fontWeight: isToday ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
     );
   }
 
