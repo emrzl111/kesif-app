@@ -8,8 +8,8 @@ import 'package:latlong2/latlong.dart';
 import 'package:uuid/uuid.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:permission_handler/permission_handler.dart';
 import '../../app/theme.dart';
+import '../../shared/widgets/location_disclosure.dart';
 import '../../services/location_service.dart';
 import '../../services/database_service.dart';
 import '../../shared/models/models.dart';
@@ -96,6 +96,16 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   void _startTracking() async {
+    // Google Play: sistem izni istenmeden önce belirgin açıklama gösterilmeli
+    final disclosureOk = await LocationDisclosure.ensureAccepted(context);
+    if (!mounted) return;
+    if (!disclosureOk) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Rota kaydı için konum izni gerekli.')),
+      );
+      return;
+    }
+
     final hasPermission = await _locationService.checkPermissions();
     if (!mounted) return;
     if (!hasPermission) {
@@ -105,25 +115,9 @@ class _TrackingScreenState extends State<TrackingScreen>
       return;
     }
 
-    // Android: Arka plan konum izni iste
-    if (Platform.isAndroid) {
-      final bgStatus = await Permission.locationAlways.status;
-      if (!bgStatus.isGranted) {
-        final result = await Permission.locationAlways.request();
-        if (mounted && result.isDenied) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                '⚠️ Arka plan konum izni verilmedi. '
-                'Rota oluşturma uygulama açıkken çalışır.',
-              ),
-              duration: Duration(seconds: 4),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      }
-    }
+    // NOT: Arka plan konum izni (ACCESS_BACKGROUND_LOCATION) istenmez.
+    // Ekran kapansa bile rota kaydı, aşağıdaki foregroundNotificationConfig
+    // ile başlatılan görünür foreground service sayesinde devam eder.
 
     // İlk konumu al ve başlangıç noktası olarak hemen ekle
     Position? initialPos;

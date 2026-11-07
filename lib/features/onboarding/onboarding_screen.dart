@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../app/theme.dart';
+import '../../shared/widgets/location_disclosure.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -34,24 +35,38 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       gradientColors: [const Color(0xFF8E2DE2), const Color(0xFF4A00E0)],
     ),
     OnboardingPageData(
-      title: 'Güvenli Konum Kullanımı 🔒',
-      description: 'Keşif, yakınınızdaki yerleri gösterebilmek için konum izninize ihtiyaç duyar. Konum verileriniz hiçbir reklam verenle paylaşılmaz, tamamen güvendedir.',
-      icon: Icons.security,
+      title: LocationDisclosure.title,
+      description: '', // Son sayfada LocationDisclosureContent gösterilir
+      icon: Icons.location_on,
       gradientColors: [const Color(0xFFF12711), const Color(0xFFF5AF19)],
     ),
   ];
 
-  Future<void> _completeOnboarding() async {
+  bool get _isLastPage => _currentPage == _slides.length - 1;
+
+  /// "Atla" butonu izin istemez; kullanıcıyı konum açıklama sayfasına götürür.
+  void _skipToDisclosure() {
+    _pageController.animateToPage(
+      _slides.length - 1,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeIn,
+    );
+  }
+
+  Future<void> _completeOnboarding({required bool locationAccepted}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('onboarding_completed', true);
-    
-    // Konum iznini tetikle
-    try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        await Geolocator.requestPermission();
-      }
-    } catch (_) {}
+    await LocationDisclosure.setAccepted(locationAccepted);
+
+    // Sistem konum izni YALNIZCA kullanıcı açıklamayı kabul ettiyse istenir
+    if (locationAccepted) {
+      try {
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          await Geolocator.requestPermission();
+        }
+      } catch (_) {}
+    }
 
     if (mounted) {
       Navigator.of(context).pushReplacementNamed('/home');
@@ -69,8 +84,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               alignment: Alignment.topRight,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
-                child: TextButton(
-                  onPressed: _completeOnboarding,
+                child: _isLastPage
+                    ? const SizedBox(height: 48)
+                    : TextButton(
+                  onPressed: _skipToDisclosure,
                   child: const Text(
                     'Atla',
                     style: TextStyle(
@@ -92,6 +109,37 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 },
                 itemBuilder: (context, index) {
                   final slide = _slides[index];
+                  if (index == _slides.length - 1) {
+                    return SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 28.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 88,
+                            height: 88,
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(colors: slide.gradientColors),
+                              borderRadius: BorderRadius.circular(28),
+                            ),
+                            child: Icon(slide.icon, color: Colors.white, size: 48),
+                          ),
+                          const SizedBox(height: 20),
+                          Text(
+                            slide.title,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          const LocationDisclosureContent(),
+                        ],
+                      ),
+                    );
+                  }
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 32.0),
                     child: Column(
@@ -204,7 +252,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               curve: Curves.easeIn,
                             );
                           } else {
-                            _completeOnboarding();
+                            _completeOnboarding(locationAccepted: true);
                           }
                         },
                         style: ElevatedButton.styleFrom(
@@ -215,8 +263,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           ),
                         ),
                         child: Text(
-                          _currentPage == _slides.length - 1
-                              ? 'Konum İzni Ver ve Başla'
+                          _isLastPage
+                              ? 'Kabul Et ve Konum İzni Ver'
                               : 'Devam Et',
                           style: const TextStyle(
                             color: Colors.white,
@@ -227,6 +275,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       ),
                     ),
                   ),
+                  if (_isLastPage) ...[
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: () =>
+                          _completeOnboarding(locationAccepted: false),
+                      child: const Text(
+                        'Hayır, teşekkürler',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),

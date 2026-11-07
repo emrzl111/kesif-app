@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../core/app_logger.dart';
+import '../shared/widgets/location_disclosure.dart';
 
 class EventModel {
   final String id;
@@ -82,7 +83,8 @@ class EventsService {
 
     try {
       LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
+      if (permission == LocationPermission.denied &&
+          await LocationDisclosure.isAccepted()) {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.deniedForever ||

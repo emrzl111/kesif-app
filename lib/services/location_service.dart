@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
+import '../shared/widgets/location_disclosure.dart';
 
 class LocationService {
   static final LocationService _instance = LocationService._internal();
@@ -20,6 +21,8 @@ class LocationService {
 
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
+      // Belirgin açıklama kabul edilmeden sistem izni istenmez (Google Play)
+      if (!await LocationDisclosure.isAccepted()) return false;
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return false;
     }

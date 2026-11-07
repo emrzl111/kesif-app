@@ -3,8 +3,10 @@
     <!-- Konum izinleri -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- Arka plan konum (rota kaydı için zorunlu) -->
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Arka plan konum izni KULLANILMIYOR (Google Play politikası).
+         Rota kaydı, uygulama açıkken başlatılan "location" tipli foreground
+         service ile çalışır; bunun için ACCESS_BACKGROUND_LOCATION gerekmez. -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
     <!-- Foreground Service (geolocator arka plan stream için kullanır) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
